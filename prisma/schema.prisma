@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  password     String
+  nome         String
+  cognome      String
+  ruolo        String   @default("MEDICO") // ADMIN, MEDICO, TECNICO, PAZIENTE, SEGRETERIA
+  specializzazione String?
+  struttura    String?
+  telefono     String?
+  attivo       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  studi            Study[]  @relation("MedicoRichiedente")
+  studiRefertati   Study[]  @relation("MedicoRefertante")
+  studiAssegnati   Study[]  @relation("TecnicoAssegnato")
+  casiPubblicati   CaseStudy[]
+  annotazioni      CaseAnnotation[]
+}
+
+model Patient {
+  id              String   @id @default(uuid())
+  codiceFiscale   String   @unique
+  nome            String
+  cognome         String
+  dataNascita     DateTime
+  sesso           String   // M, F
+  luogoNascita    String?
+  indirizzo       String?
+  citta           String?
+  cap             String?
+  provincia       String?
+  telefono        String?
+  email           String?
+  note            String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  studi           Study[]
+  firme           Signature[]
+}
+
+model Study {
+  id                String   @id @default(uuid())
+  patientId         String
+  medicoRichiedenteId String?
+  medicoRefertanteId  String?
+  tecnicoAssegnatoId  String?
+  accessionNumber   String   @unique @default(uuid())
+  studyInstanceUID  String   @unique @default(uuid())
+  dataStudio        DateTime @default(now())
+  descrizione       String?
+  modalita          String   // CR, CT, MR, US, XA, etc.
+  bodyPart          String?  // CHEST, HEAD, ABDOMEN, etc.
+  sedeEsame         String?  // Nome struttura/sede
+  stato             String   @default("IN_CORSO") // IN_CORSO, COMPLETATO, REFERTATO, FIRMATO
+  priorita          String   @default("NORMALE") // URGENTE, NORMALE, BASSA
+  referto           String?  // Testo referto
+  dataReferto       DateTime?
+  note              String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  patient           Patient  @relation(fields: [patientId], references: [id])
+  medicoRichiedente User?    @relation("MedicoRichiedente", fields: [medicoRichiedenteId], references: [id])
+  medicoRefertante  User?    @relation("MedicoRefertante", fields: [medicoRefertanteId], references: [id])
+  tecnicoAssegnato  User?    @relation("TecnicoAssegnato", fields: [tecnicoAssegnatoId], references: [id])
+  series            Series[]
+  firme             Signature[]
+  shareTokens       ShareToken[]
+  aiAnalyses        AIAnalysis[]
+  caseStudies       CaseStudy[]
+}
+
+model Series {
+  id                String   @id @default(uuid())
+  studyId           String
+  seriesInstanceUID String   @unique @default(uuid())
+  seriesNumber      Int      @default(1)
+  descrizione       String?
+  modalita          String?
+  dataAcquisizione  DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  study             Study    @relation(fields: [studyId], references: [id], onDelete: Cascade)
+  instances         Instance[]
+}
+
+model Instance {
+  id                String   @id @default(uuid())
+  seriesId          String
+  sopInstanceUID    String   @unique @default(uuid())
+  instanceNumber    Int      @default(1)
+  filePath          String   // Percorso file DICOM
+  fileSize          Int      @default(0)
+  rows              Int?
+  columns           Int?
+  bitsAllocated     Int?
+  transferSyntax    String?
+  thumbnailPath     String?
+  createdAt         DateTime @default(now())
+
+  series            Series   @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+}
+
+model Signature {
+  id          String   @id @default(uuid())
+  patientId   String
+  studyId     String
+  firmaData   String   // Base64 PNG della firma
+  ipAddress   String?
+  userAgent   String?
+  consenso    String   // Testo del consenso accettato
+  createdAt   DateTime @default(now())
+
+  patient     Patient  @relation(fields: [patientId], references: [id])
+  study       Study    @relation(fields: [studyId], references: [id])
+}
+
+model ShareToken {
+  id          String   @id @default(uuid())
+  studyId     String
+  token       String   @unique @default(uuid())
+  email       String?  // Email destinatario
+  descrizione String?
+  scadenza    DateTime
+  accessCount Int      @default(0)
+  maxAccess   Int      @default(10)
+  attivo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  study       Study    @relation(fields: [studyId], references: [id])
+}
+
+// ==========================================
+// INTELLIGENT AGENT & FEDERATION MODELS
+// ==========================================
+
+model FederatedNode {
+  id           String   @id @default(uuid())
+  nome         String                           // "Ospedale San Raffaele - Milano"
+  paese        String   @default("IT")           // ISO country code
+  endpoint     String   @unique                  // https://remote.hospital/api/federation
+  apiKey       String                            // chiave per autenticazione
+  apiSecret    String                            // secret per firma HMAC
+  attivo       Boolean  @default(true)
+  ultimoSync   DateTime?
+  metadati     String?                           // JSON: capacità, modalità supportate
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AIAnalysis {
+  id           String   @id @default(uuid())
+  studyId      String
+  userId       String?                           // chi ha richiesto l'analisi
+  tipo         String                            // REFERTO_SUGGERITO, ANOMALIA, CLASSIFICAZIONE
+  contenuto    String                            // risultato AI in markdown
+  confidenza   Float    @default(0)              // 0.0 - 1.0
+  modelloAI    String   @default("gemini-2.5-flash")
+  stato        String   @default("COMPLETATO")   // IN_CORSO, COMPLETATO, ERRORE
+  createdAt    DateTime @default(now())
+
+  study        Study    @relation(fields: [studyId], references: [id])
+}
+
+model CaseStudy {
+  id              String   @id @default(uuid())
+  studyId         String
+  userId          String                          // autore
+  titolo          String
+  descrizione     String                          // abstract del caso
+  categoria       String                          // NEUROLOGIA, ORTOPEDIA, etc.
+  difficolta      String   @default("INTERMEDIO") // BASE, INTERMEDIO, AVANZATO
+  tags            String?                         // JSON array di tag
+  pubblicato      Boolean  @default(false)
+  visualizzazioni Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  study           Study         @relation(fields: [studyId], references: [id])
+  user            User          @relation(fields: [userId], references: [id])
+  annotazioni     CaseAnnotation[]
+}
+
+model CaseAnnotation {
+  id           String   @id @default(uuid())
+  caseStudyId  String
+  userId       String
+  contenuto    String                            // testo annotazione
+  tipo         String   @default("COMMENTO")      // COMMENTO, DIAGNOSI_DIFFERENZIALE, TEACHING_POINT
+  createdAt    DateTime @default(now())
+
+  caseStudy    CaseStudy @relation(fields: [caseStudyId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [userId], references: [id])
+}
