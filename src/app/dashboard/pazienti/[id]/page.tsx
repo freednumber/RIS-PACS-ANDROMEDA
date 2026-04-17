@@ -33,6 +33,9 @@ interface PatientDetail {
         medicoRichiedente: { nome: string; cognome: string } | null;
         medicoRefertante: { nome: string; cognome: string } | null;
         _count: { series: number; firme: number };
+        series: Array<{
+            instances: Array<{ id: string }>;
+        }>;
     }>;
     firme: Array<{ id: string; createdAt: string; studyId: string }>;
     _count: { studi: number; firme: number };
@@ -179,6 +182,34 @@ export default function PatientDetailPage() {
                                             )}
                                         </div>
                                     </div>
+
+                                    {/* Thumbnails grid */}
+                                    {studio.series?.[0]?.instances?.length > 0 && (
+                                        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                                            {studio.series[0].instances.map((instance) => (
+                                                <Link 
+                                                    key={instance.id} 
+                                                    href={`/dashboard/studi/${studio.id}`}
+                                                    className="relative group flex-shrink-0"
+                                                >
+                                                    <div className="w-20 h-20 rounded-lg overflow-hidden border border-white/10 glass-card group-hover:border-blue-500/50 transition-colors">
+                                                        <img 
+                                                            src={`/api/images/${instance.id}`} 
+                                                            alt="Thumbnail" 
+                                                            className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                                                            loading="lazy"
+                                                        />
+                                                    </div>
+                                                </Link>
+                                            ))}
+                                            {studio._count.series > 1 && (
+                                                <div className="w-20 h-20 rounded-lg flex flex-col items-center justify-center text-[10px] uppercase font-bold text-blue-400 border border-blue-500/20 bg-blue-500/5">
+                                                    <span>+{studio._count.series - 1}</span>
+                                                    <span>Serie</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {/* Report preview */}
                                     {studio.referto && (

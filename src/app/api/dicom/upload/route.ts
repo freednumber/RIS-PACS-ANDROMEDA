@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import dicomParser from 'dicom-parser';
 
 const UPLOAD_DIR = join(process.cwd(), 'uploads', 'dicom');
 
@@ -38,18 +39,6 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Create or get default series
-        let series = studio.series[0];
-        if (!series) {
-            series = await prisma.series.create({
-                data: {
-                    studyId,
-                    descrizione: 'Serie Principale',
-                    modalita: studio.modalita,
-                },
-            });
-        }
-
         // Create upload directory
         const studyDir = join(UPLOAD_DIR, studyId);
         await mkdir(studyDir, { recursive: true });
@@ -59,6 +48,52 @@ export async function POST(request: NextRequest) {
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             const buffer = Buffer.from(await file.arrayBuffer());
+            
+            // Extract Metadata for Intelligent Classification
+            let seriesInstanceUID = `gen-series-${uuidv4()}`;
+            let seriesDescription = 'Serie Principale';
+            let sopInstanceUID = uuidv4();
+            let instanceNumber = i + 1;
+            
+            try {
+                const byteArray = new Uint8Array(buffer);
+                const dataSet = dicomParser.parseDicom(byteArray);
+                
+                // Get UIDs and Metadata
+                seriesInstanceUID = dataSet.string('x0020000e') || seriesInstanceUID;
+                seriesDescription = dataSet.string('x0008103e') || seriesDescription;
+                sopInstanceUID = dataSet.string('x00080018') || sopInstanceUID;
+                instanceNumber = dataSet.intString('x00200013') || (i + 1);
+            } catch (e) {
+                console.warn('Could not parse DICOM metadata, using default identifier');
+            }
+
+            // PREVENT DUPLICATES: Check if SOPInstanceUID already exists
+            const existingInstance = await prisma.instance.findUnique({
+                where: { sopInstanceUID }
+            });
+
+            if (existingInstance) {
+                console.info(`Skipping duplicate image: ${sopInstanceUID}`);
+                continue;
+            }
+
+            // Find or Create Series dynamically by UID
+            let series = await prisma.series.findUnique({
+                where: { seriesInstanceUID }
+            });
+
+            if (!series) {
+                series = await prisma.series.create({
+                    data: {
+                        studyId,
+                        seriesInstanceUID,
+                        descrizione: seriesDescription,
+                        modalita: studio.modalita,
+                    }
+                });
+            }
+
             const fileId = uuidv4();
             const filePath = join(studyDir, `${fileId}.dcm`);
 
@@ -67,7 +102,8 @@ export async function POST(request: NextRequest) {
             const instance = await prisma.instance.create({
                 data: {
                     seriesId: series.id,
-                    instanceNumber: i + 1,
+                    sopInstanceUID,
+                    instanceNumber,
                     filePath: filePath,
                     fileSize: buffer.length,
                 },

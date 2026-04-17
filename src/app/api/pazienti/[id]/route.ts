@@ -16,19 +16,26 @@ export async function GET(
     const paziente = await prisma.patient.findUnique({
         where: { id },
         include: {
-            studi: {
+          studi: {
+            include: {
+              series: {
+                take: 1,
                 include: {
-                    medicoRichiedente: { select: { id: true, nome: true, cognome: true } },
-                    medicoRefertante: { select: { id: true, nome: true, cognome: true } },
-                    _count: { select: { series: true, firme: true } },
-                },
-                orderBy: { dataStudio: 'desc' },
+                  instances: {
+                    take: 3,
+                    select: { id: true }
+                  }
+                }
+              }
             },
-            firme: {
-                orderBy: { createdAt: 'desc' },
-            },
-            _count: { select: { studi: true, firme: true } },
+            orderBy: { dataStudio: 'desc' },
+          },
+          firme: {
+            orderBy: { createdAt: 'desc' },
+          },
+          _count: { select: { studi: true, firme: true } },
         },
+
     });
 
     if (!paziente) {

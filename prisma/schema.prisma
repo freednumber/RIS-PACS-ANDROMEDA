@@ -203,3 +203,18 @@ model CaseAnnotation {
   caseStudy    CaseStudy @relation(fields: [caseStudyId], references: [id], onDelete: Cascade)
   user         User      @relation(fields: [userId], references: [id])
 }
+
+model Prenotazione {
+  id                String   @id @default(cuid())
+  pazienteId        String
+  tipoEsame         String
+  descrizioneEsame  String?
+  struttura         String
+  dataDesiderata    DateTime
+  stato             String   @default("IN_ATTESA")
+  note              String?
+  studyId           String?
+  codicePrenotazione String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}

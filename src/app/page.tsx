@@ -4,33 +4,35 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import NeuralBackground from '@/components/NeuralBackground';
 
+type AccessRole = 'PAZIENTE' | 'MEDICO' | 'TSRM' | 'SEGRETERIA' | 'ADMIN';
+
+const ROLE_CREDENTIALS: Record<AccessRole, { email: string; label: string; sublabel: string }> = {
+  PAZIENTE:   { email: 'paziente@andromeda.it',   label: 'Paziente',   sublabel: 'Portale Paziente' },
+  MEDICO:     { email: 'medico@andromeda.it',     label: 'Medico',     sublabel: 'Area Medica' },
+  TSRM:       { email: 'tecnico@andromeda.it',    label: 'TSRM',       sublabel: 'Area Tecnico' },
+  SEGRETERIA: { email: 'segreteria@andromeda.it', label: 'Segreteria', sublabel: 'Segreteria / Hub' },
+  ADMIN:      { email: 'admin@andromeda.it',      label: 'Admin',      sublabel: 'Direzionale' },
+};
+
+const UNIVERSAL_PASSWORD = 'andromeda2026';
+
 export default function LoginPage() {
   const router = useRouter();
-  const [accessType, setAccessType] = useState<'PAZIENTE' | 'MEDICO' | 'TSRM' | 'SEGRETERIA'>('PAZIENTE');
+  const [accessType, setAccessType] = useState<AccessRole>('PAZIENTE');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
 
   const [form, setForm] = useState({
-    email: 'paziente@test.it',
-    password: 'password123',
+    email: ROLE_CREDENTIALS.PAZIENTE.email,
+    password: UNIVERSAL_PASSWORD,
   });
 
   useEffect(() => {
-    switch (accessType) {
-      case 'PAZIENTE':
-        setForm({ email: 'paziente@test.it', password: 'password123' });
-        break;
-      case 'MEDICO':
-        setForm({ email: 'medico@test.it', password: 'password123' });
-        break;
-      case 'TSRM':
-        setForm({ email: 'tsrm@test.it', password: 'password123' });
-        break;
-      case 'SEGRETERIA':
-        setForm({ email: 'segreteria@test.it', password: 'password123' });
-        break;
-    }
+    setForm({
+      email: ROLE_CREDENTIALS[accessType].email,
+      password: UNIVERSAL_PASSWORD,
+    });
   }, [accessType]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -64,7 +66,7 @@ export default function LoginPage() {
     }
   };
 
-  const roles = ['PAZIENTE', 'MEDICO', 'TSRM', 'SEGRETERIA'];
+  const roles: AccessRole[] = ['PAZIENTE', 'MEDICO', 'TSRM', 'SEGRETERIA', 'ADMIN'];
   const selectedIndex = roles.indexOf(accessType);
 
   return (
@@ -142,31 +144,39 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right Panel: Innovative & Fluid UI */}
-      <div className="w-full lg:w-[50%] flex items-center justify-center p-6 sm:p-12 lg:p-20 bg-white">
+      {/* Right Panel: Login UI */}
+      <div className="w-full lg:w-[50%] flex items-center justify-center p-6 sm:p-12 lg:p-16 bg-white">
         <div className="w-full max-w-md relative z-10">
 
-          {/* Dynamic "Sliding Pill" Tabs */}
-          <div className="relative flex mb-12 p-1.5 rounded-[1.25rem] bg-slate-50 border border-slate-100 shadow-inner fade-up-1">
+          {/* Role Selector — 5 tabs with sliding pill */}
+          <div className="relative flex mb-10 p-1.5 rounded-[1.25rem] bg-slate-50 border border-slate-100 shadow-inner fade-up-1">
             {/* The absolute sliding background pill */}
             <div
-              className="absolute top-1.5 bottom-1.5 rounded-[1rem] bg-[#008080] shadow-[0_4px_12px_rgba(0,128,128,0.4)] transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] z-0"
+              className="absolute top-1.5 bottom-1.5 rounded-[1rem] shadow-[0_4px_12px_rgba(0,128,128,0.4)] transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] z-0"
               style={{
-                width: 'calc(25% - 4.5px)',
-                left: `calc(${selectedIndex * 25}% + 3px)`
+                width: 'calc(20% - 3.6px)',
+                left: `calc(${selectedIndex * 20}% + 3px)`,
+                background: accessType === 'ADMIN' ? '#1e293b' : '#008080',
               }}
             />
             {roles.map((role) => (
               <button
                 key={role}
                 type="button"
-                onClick={() => setAccessType(role as any)}
-                className={`relative z-10 flex-1 py-3.5 px-1 text-[10px] sm:text-[11px] font-bold tracking-widest transition-colors duration-300 uppercase ${accessType === role ? 'text-white' : 'text-slate-400 hover:text-slate-700'
+                onClick={() => setAccessType(role)}
+                className={`relative z-10 flex-1 py-3 px-1 text-[9px] sm:text-[10px] font-bold tracking-widest transition-colors duration-300 uppercase ${accessType === role ? 'text-white' : 'text-slate-400 hover:text-slate-700'
                   }`}
               >
-                {role === 'PAZIENTE' ? 'Paziente' : role === 'MEDICO' ? 'Medico' : role === 'TSRM' ? 'TSRM' : 'Segreteria'}
+                {ROLE_CREDENTIALS[role].label}
               </button>
             ))}
+          </div>
+
+          {/* Active Role Sublabel */}
+          <div className="mb-8 fade-up-1">
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.25em] text-center" style={{ color: accessType === 'ADMIN' ? '#1e293b' : '#008080' }}>
+              {ROLE_CREDENTIALS[accessType].sublabel}
+            </p>
           </div>
 
           {error && (
@@ -180,7 +190,7 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
 
-            {/* Input 1: Floating Label & Expanding Underline */}
+            {/* Input 1: Email — Floating Label & Expanding Underline */}
             <div className="relative fade-up-2 group rounded-t-xl bg-slate-50/50 hover:bg-slate-50 transition-colors">
               <input
                 type="text"
@@ -198,13 +208,13 @@ export default function LoginPage() {
                            peer-focus:top-2 peer-focus:text-[10px] peer-focus:text-[#008080] peer-focus:uppercase peer-focus:font-bold
                            top-2 text-[10px] text-slate-500"
               >
-                {accessType === 'PAZIENTE' ? "mario.rossi@email.it / Codice Fiscale" : "ID Aziendale o Email"}
+                Email
               </label>
               {/* Center-out expanded underline */}
               <div className="absolute bottom-0 left-0 h-0.5 w-full bg-[#008080] scale-x-0 origin-center peer-focus:scale-x-100 transition-transform duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]"></div>
             </div>
 
-            {/* Input 2: Floating Label, Show Password Toggle & Expanding Underline */}
+            {/* Input 2: Password — Floating Label, Show Password Toggle & Expanding Underline */}
             <div className="relative fade-up-3 group rounded-t-xl bg-slate-50/50 hover:bg-slate-50 transition-colors">
               <input
                 type={showPassword ? 'text' : 'password'}
@@ -266,15 +276,22 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="group relative w-full flex justify-center py-4 px-4 text-sm font-bold rounded-2xl text-white transition-all duration-300 overflow-hidden bg-[linear-gradient(110deg,#008080,#14b8a6,#008080)] hover:scale-[1.02] active:scale-[0.98] shadow-[0_8px_25px_rgba(0,128,128,0.35)] focus:outline-none focus:ring-4 focus:ring-[#008080]/20 disabled:opacity-80 disabled:cursor-not-allowed disabled:hover:scale-100"
-                style={{ backgroundSize: '200% auto' }}
+                className="group relative w-full flex justify-center py-4 px-4 text-sm font-bold rounded-2xl text-white transition-all duration-300 overflow-hidden hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-4 focus:ring-[#008080]/20 disabled:opacity-80 disabled:cursor-not-allowed disabled:hover:scale-100"
+                style={{
+                  backgroundImage: accessType === 'ADMIN'
+                    ? 'linear-gradient(110deg, #1e293b, #334155, #1e293b)'
+                    : 'linear-gradient(110deg, #008080, #14b8a6, #008080)',
+                  backgroundSize: '200% auto',
+                  boxShadow: accessType === 'ADMIN'
+                    ? '0 8px 25px rgba(30,41,59,0.35)'
+                    : '0 8px 25px rgba(0,128,128,0.35)',
+                }}
               >
                 {/* Shiny hover effect */}
                 <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-[150%] skew-x-[-20deg] group-hover:animate-[shimmer_2s_infinite]"></div>
 
                 {loading ? (
                   <div className="flex items-center gap-2">
-                    {/* Morphing Spinner */}
                     <div className="flex space-x-1.5 items-center justify-center">
                       <div className="h-2 w-2 bg-white rounded-full animate-bounce [animation-delay:-0.3s]"></div>
                       <div className="h-2 w-2 bg-white rounded-full animate-bounce [animation-delay:-0.15s]"></div>
@@ -282,14 +299,24 @@ export default function LoginPage() {
                     </div>
                   </div>
                 ) : (
-                  <span className="tracking-wide">ACCEDI AL SISTEMA</span>
+                  <span className="tracking-wide">
+                    {accessType === 'ADMIN' ? 'ACCEDI COME AMMINISTRATORE' : 'ACCEDI AL SISTEMA'}
+                  </span>
                 )}
               </button>
             </div>
 
           </form>
 
-          <div className="mt-12 text-center fade-up-6">
+          {/* Credentials hint */}
+          <div className="mt-8 p-4 rounded-xl bg-slate-50 border border-slate-100 fade-up-6">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2 text-center">Credenziali Demo</p>
+            <p className="text-xs text-slate-500 text-center font-mono">
+              Password unica: <span className="font-bold text-slate-700">andromeda2026</span>
+            </p>
+          </div>
+
+          <div className="mt-6 text-center fade-up-6">
             <p className="text-[10px] font-bold tracking-widest text-[#008080]/40 uppercase">
               Secure Medical Environment
             </p>

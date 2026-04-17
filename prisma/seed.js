@@ -7,31 +7,37 @@ const dbPath = path.join(__dirname, '..', 'dev.db');
 const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` });
 const prisma = new PrismaClient({ adapter });
 
+// ═══════════════════════════════════════════════════════════════
+// PASSWORD UNICA per tutti i ruoli
+// ═══════════════════════════════════════════════════════════════
+const UNIVERSAL_PASSWORD = 'andromeda2026';
+
 async function main() {
-    console.log('🌱 Seeding database...');
+    console.log('🌱 Seeding database Andromeda RIS-PACS...');
+
+    const hashedPassword = await bcrypt.hash(UNIVERSAL_PASSWORD, 12);
 
     // ─── USERS ───────────────────────────────────────────────────────────────
 
-    const adminPassword = await bcrypt.hash('admin123', 12);
     const admin = await prisma.user.upsert({
-        where: { email: 'admin@pacsris.it' },
-        update: {},
+        where: { email: 'admin@andromeda.it' },
+        update: { password: hashedPassword },
         create: {
-            email: 'admin@pacsris.it',
-            password: adminPassword,
+            email: 'admin@andromeda.it',
+            password: hashedPassword,
             nome: 'Admin',
             cognome: 'Sistema',
             ruolo: 'ADMIN',
+            struttura: 'Andromeda HQ',
         },
     });
 
-    const drPassword = await bcrypt.hash('medico123', 12);
     const medico = await prisma.user.upsert({
-        where: { email: 'dott.bianchi@ospedale.it' },
-        update: {},
+        where: { email: 'medico@andromeda.it' },
+        update: { password: hashedPassword },
         create: {
-            email: 'dott.bianchi@ospedale.it',
-            password: drPassword,
+            email: 'medico@andromeda.it',
+            password: hashedPassword,
             nome: 'Marco',
             cognome: 'Bianchi',
             ruolo: 'MEDICO',
@@ -40,14 +46,38 @@ async function main() {
         },
     });
 
-    // Paziente con account di login sul portale
-    const pazientePassword = await bcrypt.hash('paziente123', 12);
-    const pazienteUser = await prisma.user.upsert({
-        where: { email: 'mario.rossi@email.it' },
-        update: {},
+    const tecnico = await prisma.user.upsert({
+        where: { email: 'tecnico@andromeda.it' },
+        update: { password: hashedPassword },
         create: {
-            email: 'mario.rossi@email.it',
-            password: pazientePassword,
+            email: 'tecnico@andromeda.it',
+            password: hashedPassword,
+            nome: 'Luca',
+            cognome: 'Ferretti',
+            ruolo: 'TECNICO',
+            struttura: 'Ospedale San Giovanni, Roma',
+        },
+    });
+
+    const segreteria = await prisma.user.upsert({
+        where: { email: 'segreteria@andromeda.it' },
+        update: { password: hashedPassword },
+        create: {
+            email: 'segreteria@andromeda.it',
+            password: hashedPassword,
+            nome: 'Anna',
+            cognome: 'Conti',
+            ruolo: 'SEGRETERIA',
+            struttura: 'Ospedale San Giovanni, Roma',
+        },
+    });
+
+    const pazienteUser = await prisma.user.upsert({
+        where: { email: 'paziente@andromeda.it' },
+        update: { password: hashedPassword },
+        create: {
+            email: 'paziente@andromeda.it',
+            password: hashedPassword,
             nome: 'Mario',
             cognome: 'Rossi',
             ruolo: 'PAZIENTE',
@@ -55,11 +85,22 @@ async function main() {
         },
     });
 
+    // Keep legacy users updated too
+    const legacyEmails = [
+        'admin@pacsris.it', 'dott.bianchi@ospedale.it', 'mario.rossi@email.it',
+        'paziente@test.it', 'medico@test.it', 'tsrm@test.it', 'segreteria@test.it'
+    ];
+    for (const email of legacyEmails) {
+        try {
+            await prisma.user.update({ where: { email }, data: { password: hashedPassword } });
+        } catch { /* user may not exist, skip */ }
+    }
+
     // ─── PATIENTS ────────────────────────────────────────────────────────────
 
     const paziente1 = await prisma.patient.upsert({
         where: { codiceFiscale: 'RSSMRA80A01H501X' },
-        update: {},
+        update: { email: 'paziente@andromeda.it' },
         create: {
             codiceFiscale: 'RSSMRA80A01H501X',
             nome: 'Mario',
@@ -72,7 +113,7 @@ async function main() {
             cap: '00100',
             provincia: 'RM',
             telefono: '+39 333 1234567',
-            email: 'mario.rossi@email.it',
+            email: 'paziente@andromeda.it',
         },
     });
 
@@ -160,7 +201,6 @@ async function main() {
     });
 
     // ─── STUDIES FOR PATIENT PORTAL (Mario Rossi) ────────────────────────────
-    // Questi 3 studi simulano il portale paziente con viewer PACS mock
 
     const studioPaziente_RMCranio = await prisma.study.create({
         data: {
@@ -241,12 +281,10 @@ TC addome e pelvi senza reperti patologici di rilievo.`,
     });
 
     // ─── PRENOTAZIONI (Patient Portal) ───────────────────────────────────────
-    // Verifica se il modello Prenotazione esiste prima di inserire
 
     const hasPrenotazione = Object.keys(prisma).includes('prenotazione');
 
     if (hasPrenotazione) {
-        // Prenotazione confermata – RM Cranio
         await prisma.prenotazione.upsert({
             where: { id: 'seed-prenotazione-001' },
             update: {},
@@ -263,7 +301,6 @@ TC addome e pelvi senza reperti patologici di rilievo.`,
             },
         });
 
-        // Prenotazione in attesa – RX Torace
         await prisma.prenotazione.upsert({
             where: { id: 'seed-prenotazione-002' },
             update: {},
@@ -280,7 +317,6 @@ TC addome e pelvi senza reperti patologici di rilievo.`,
             },
         });
 
-        // Prenotazione completata – TC Addome
         await prisma.prenotazione.upsert({
             where: { id: 'seed-prenotazione-003' },
             update: {},
@@ -297,7 +333,6 @@ TC addome e pelvi senza reperti patologici di rilievo.`,
             },
         });
 
-        // Prenotazione annullata – Ecografia
         await prisma.prenotazione.upsert({
             where: { id: 'seed-prenotazione-004' },
             update: {},
@@ -314,17 +349,85 @@ TC addome e pelvi senza reperti patologici di rilievo.`,
             },
         });
 
-        console.log('📅 Prenotazioni mock create con successo.');
-    } else {
-        console.log('⚠️  Modello Prenotazione non trovato nello schema. Esegui: npx prisma migrate dev --name add-prenotazioni');
-    }
+    // ─── FEDERATED NODES ─────────────────────────────────────────────────────
+    
+    await prisma.federatedNode.upsert({
+        where: { id: 'node-roma-1' },
+        update: {},
+        create: {
+            id: 'node-roma-1',
+            nome: 'Ospedale San Camillo',
+            endpoint: 'https://pacs.sancamillo.roma.it/api/federation',
+            apiKey: 'sk-camillo-12345',
+            paese: 'IT',
+            citta: 'Roma',
+            attivo: true
+        }
+    });
 
-    console.log('✅ Seed completato!');
-    console.log('\n📧 Credenziali di accesso:');
-    console.log('   Admin:    admin@pacsris.it     / admin123');
-    console.log('   Medico:   dott.bianchi@ospedale.it / medico123');
-    console.log('   Paziente: mario.rossi@email.it  / paziente123');
-    console.log('\n👥 Pazienti nel DB:', paziente1.cognome, '|', paziente2.cognome, '|', paziente3.cognome);
+    await prisma.federatedNode.upsert({
+        where: { id: 'node-milano-1' },
+        update: {},
+        create: {
+            id: 'node-milano-1',
+            nome: 'Galeazzi Orthopaedics',
+            endpoint: 'https://federation.galeazzi.it',
+            apiKey: 'sk-galeazzi-67890',
+            paese: 'IT',
+            citta: 'Milano',
+            attivo: true
+        }
+    });
+
+    console.log('🌐 Nodi federati creati con successo.');
+
+    // ─── CASE STUDIES / AI PREVIEWS ──────────────────────────────────────────
+
+    const mriBrainStudy = await prisma.study.upsert({
+        where: { id: 'study-ai-mri-001' },
+        update: {},
+        create: {
+            id: 'study-ai-mri-001',
+            patientId: paziente1.id,
+            medicoRichiedenteId: medico.id,
+            descrizione: 'RM ENCEFALO - ANALISI AI INTEGRATA',
+            modalita: 'MR',
+            bodyPart: 'CRANIO',
+            sedeEsame: 'Centro Andromeda Vision',
+            stato: 'DA_REFERTARE',
+            dataStudio: new Date('2026-04-10T14:00:00'),
+            priorita: 'URGENTE',
+        }
+    });
+
+    await prisma.aIAnalysis.create({
+        data: {
+            studyId: mriBrainStudy.id,
+            tipo: 'ANOMALIA',
+            contenuto: '## Analisi Preliminare AI\n\n- **Segnale anomalo** rilevato in corrispondenza del lobo temporale sinistro.\n- Sospetta area di edema vasogenico.\n- Necessaria correlazione con mdc.',
+            confidenza: 0.94,
+            modelloAI: 'gemini-2.5-flash',
+            stato: 'COMPLETATO'
+        }
+    });
+
+    console.log('🤖 Dati di addestramento AI creati.');
+
+    console.log('');
+    console.log('╔════════════════════════════════════════════════════════════╗');
+    console.log('║          ✅ SEED ANDROMEDA RIS-PACS COMPLETATO           ║');
+    console.log('╠════════════════════════════════════════════════════════════╣');
+    console.log('║                                                          ║');
+    console.log('║  🔑 PASSWORD UNICA: andromeda2026                        ║');
+    console.log('║                                                          ║');
+    console.log('║  📧 Account disponibili:                                 ║');
+    console.log('║     🛡️  Admin:      admin@andromeda.it                    ║');
+    console.log('║     🩺 Medico:     medico@andromeda.it                   ║');
+    console.log('║     🔬 TSRM:       tecnico@andromeda.it                  ║');
+    console.log('║     📋 Segreteria: segreteria@andromeda.it               ║');
+    console.log('║     👤 Paziente:   paziente@andromeda.it                  ║');
+    console.log('║                                                          ║');
+    console.log('╚════════════════════════════════════════════════════════════╝');
 }
 
 main()

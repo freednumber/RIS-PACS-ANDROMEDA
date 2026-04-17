@@ -1,66 +1,113 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import NeuralBackground from '@/components/NeuralBackground';
+import Link from 'next/link';
+import { DICOM_STORE } from '@/lib/dicomweb';
+import DicomViewport from '@/components/pacs/DicomViewport';
 
-// Mock Data for Doctor Worklist
-const examsList = [
-    { id: 'S-7901', patient: 'Marco Bianchi', dob: '12/04/1982', date: '13/04/2026', time: '09:00', modality: 'RMN', bodyPart: 'Spalla Sinistra', status: 'DA_REFERTARE', facility: 'Osp. San Raffaele' },
-    { id: 'S-7902', patient: 'Giulia Ferrari', dob: '23/08/1975', date: '13/04/2026', time: '09:45', modality: 'TC', bodyPart: 'Addome con MDC', status: 'DA_REFERTARE', facility: 'Polo Radiologico And.' },
-    { id: 'S-7903', patient: 'Lorenzo Conti', dob: '15/05/1960', date: '13/04/2026', time: '10:15', modality: 'RX', bodyPart: 'Colonna Lombare', status: 'DA_REFERTARE', facility: 'Ospedale Centrale Sa.' },
-    { id: 'S-7904', patient: 'Sofia Marino', dob: '05/11/1954', date: '13/04/2026', time: '11:00', modality: 'PET', bodyPart: 'Torace Completo', status: 'REFERTATO', facility: 'Clinica Villa Verde' },
-    { id: 'S-7905', patient: 'Andrea Russo', dob: '19/02/1990', date: '13/04/2026', time: '11:30', modality: 'ECO', bodyPart: 'Addome Superiore', status: 'REFERTATO', facility: 'Osp. Gemelli' },
-];
-
+// Modality colors
 const modalityColor: Record<string, string> = {
   RMN: 'text-[#00D4BE] bg-[#00D4BE]/10 border-[#00D4BE]/30',
-  TC:  'text-blue-400 bg-blue-400/10 border-blue-400/30',
+  CT:  'text-blue-400 bg-blue-400/10 border-blue-400/30',
   RX:  'text-slate-300 bg-slate-300/10 border-slate-300/30',
   PET: 'text-amber-400 bg-amber-400/10 border-amber-400/30',
   ECO: 'text-purple-400 bg-purple-400/10 border-purple-400/30',
 };
 
+interface Study {
+    id: string;
+    patientName: string;
+    studyDescription: string;
+    studyDate: string;
+    modality: string;
+    nodeName: string;
+    isFederated: boolean;
+    status?: string;
+}
+
 export default function DashboardMedico({ stats }: { stats: any }) {
     const [selectedTab, setSelectedTab] = useState<'DA_REFERTARE' | 'REFERTATO'>('DA_REFERTARE');
-    const [selectedExamId, setSelectedExamId] = useState<string | null>('S-7901');
+    const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
-    const [facilityFilter, setFacilityFilter] = useState("All Facilities");
+    const [isGlobalSearch, setIsGlobalSearch] = useState(false);
+    const [studies, setStudies] = useState<Study[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
 
     // Reporting States
     const [reportText, setReportText] = useState("");
     const [isDictating, setIsDictating] = useState(false);
+    const [isAiGenerating, setIsAiGenerating] = useState(false);
 
-    // Reset report text when exam changes for mock realism
+    const fetchStudies = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const endpoint = isGlobalSearch ? '/api/federation/search' : '/api/studi';
+            const method = isGlobalSearch ? 'POST' : 'GET';
+            const body = isGlobalSearch ? JSON.stringify({ query: searchQuery }) : undefined;
+            
+            const res = await fetch(endpoint, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                // Adapt mixed response formats
+                const results = isGlobalSearch 
+                    ? data.results 
+                    : data.data.map((s: any) => ({
+                        id: s.id,
+                        patientName: `${s.patient.nome} ${s.patient.cognome}`,
+                        studyDescription: s.descrizione,
+                        studyDate: s.dataStudio,
+                        modality: s.modalita,
+                        nodeName: 'Andromeda-Local',
+                        isFederated: false,
+                        status: s.firme?.length > 0 ? 'REFERTATO' : 'DA_REFERTARE'
+                    }));
+                setStudies(results);
+            }
+        } catch (error) {
+            console.error('Fetch studies failed:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [searchQuery, isGlobalSearch]);
+
     useEffect(() => {
-        if (selectedTab === 'REFERTATO') {
-            setReportText(`In studio l'esame RMN Spalla Sinistra.\n\nLorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.`);
-        } else {
-            setReportText("");
-        }
-    }, [selectedExamId, selectedTab]);
+        fetchStudies();
+    }, [fetchStudies]);
 
-    // Filtering logic
-    const filteredExams = examsList.filter(e => {
-        if (e.status !== selectedTab) return false;
-        if (facilityFilter !== 'All Facilities' && e.facility !== facilityFilter) return false;
-        if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            return e.patient.toLowerCase().includes(query) ||
-                   e.id.toLowerCase().includes(query) ||
-                   e.modality.toLowerCase().includes(query);
+    const runAiReport = async () => {
+        if (!selectedExamId) return;
+        setIsAiGenerating(true);
+        try {
+            const res = await fetch('/api/ai/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ studyId: selectedExamId, tipo: 'REFERTO_SUGGERITO' })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setReportText(data.data.contenuto);
+            }
+        } catch (err) {
+            console.error('AI Report failed:', err);
+        } finally {
+            setIsAiGenerating(false);
         }
-        return true;
-    });
-
-    const selectedExamObj = examsList.find(e => e.id === selectedExamId);
+    };
 
     const toggleDictation = () => {
         setIsDictating(!isDictating);
         if (!isDictating && reportText === "") {
-            // Fake dictation inserting words
             setReportText("Esame RM della spalla sinistra. Non si evidenziano lesioni della cuffia dei rotatori...");
         }
     };
+
+    const selectedExamObj = studies.find(e => e.id === selectedExamId);
 
     return (
         <div className="relative flex h-screen w-full overflow-hidden bg-[#0A0E1A] font-sans">
@@ -101,10 +148,13 @@ export default function DashboardMedico({ stats }: { stats: any }) {
 
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-[#00D4BE]/10">
-                    <span className="text-white font-bold text-sm tracking-wide">Worklist Esami</span>
-                    <span className="text-[10px] font-mono bg-[#00D4BE]/10 text-[#00D4BE] border border-[#00D4BE]/30 px-2 py-0.5 rounded-full">
-                        {examsList.length.toString().padStart(7, '0')}
-                    </span>
+                    <span className="text-white font-bold text-sm tracking-wide">Worklist Clinica</span>
+                    <button 
+                        onClick={() => setIsGlobalSearch(!isGlobalSearch)}
+                        className={`text-[9px] font-black border px-2 py-0.5 rounded-full transition-all ${isGlobalSearch ? 'bg-cyan-500 text-slate-900 border-cyan-400 animate-pulse' : 'bg-slate-900 text-cyan-500 border-cyan-900'}`}
+                    >
+                        {isGlobalSearch ? 'FEDERAZIONE: ON' : 'GLOBAL SEARCH'}
+                    </button>
                 </div>
 
                 {/* Tabs */}
@@ -142,39 +192,42 @@ export default function DashboardMedico({ stats }: { stats: any }) {
 
                 {/* Patient List */}
                 <div className="flex-1 overflow-y-auto hide-scroll p-3 space-y-2">
-                    {filteredExams.map((exam) => {
+                    {isLoading ? (
+                        <div className="flex flex-col items-center justify-center py-10 gap-3 opacity-40">
+                            <div className="w-5 h-5 border border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-[10px] uppercase tracking-widest text-[#00D4BE]">Sincronizzazione...</span>
+                        </div>
+                    ) : studies.filter(e => isGlobalSearch || e.status === selectedTab).map((exam) => {
                         const isSelected = selectedExamId === exam.id;
                         return (
                             <div
                                 key={exam.id}
                                 onClick={() => setSelectedExamId(exam.id)}
-                                className={`p-3 flex gap-3 ${isSelected
-                                    ? 'bg-[#00D4BE]/8 border-[#00D4BE]/60 shadow-[0_0_20px_rgba(0,212,190,0.08)] ring-1 ring-[#00D4BE]/20'
-                                    : 'bg-[#0D1220]/60 border-white/5 hover:border-[#00D4BE]/25 hover:bg-[#00D4BE]/5'
+                                className={`p-3 rounded-xl flex gap-3 cursor-pointer transition-all duration-300 border ${isSelected
+                                    ? 'bg-[#00D4BE]/8 border-[#00D4BE]/60 shadow-[0_0_20px_rgba(0,212,190,0.08)] ring-1 ring-[#00D4BE]/20 scale-[1.02]'
+                                    : 'bg-[#0D1220]/60 border-white/5 hover:border-[#00D4BE]/25 hover:bg-[#00D4BE]/5 hover:translate-x-1'
                                     }`}
                             >
-                                {/* Avatar Mock */}
-                                <div className="mt-1 w-8 h-8 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center shrink-0 overflow-hidden">
+                                <div className="mt-1 w-8 h-8 rounded-full bg-slate-800 border border-slate-600 flex items-center justify-center shrink-0 overflow-hidden shadow-inner">
                                     <img src={"https://i.pravatar.cc/100?u=" + exam.id} alt="Avatar" className="w-full h-full object-cover opacity-80" />
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-start">
-                                        <span className="font-bold text-white text-[13px]">{exam.patient}</span>
-                                        <span className="text-[10px] text-slate-500 font-mono tracking-wider">{exam.id}</span>
+                                        <span className="font-bold text-white text-[13px] tracking-tight">{exam.patientName}</span>
+                                        {exam.isFederated && (
+                                            <span className="text-[7px] font-black bg-blue-500 text-white px-1.5 py-0.5 rounded ml-2 uppercase">Remote</span>
+                                        )}
                                     </div>
                                     <div className="flex items-center gap-1.5 text-[11px] text-[#00D4BE] mt-0.5">
                                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${modalityColor[exam.modality] ?? ''}`}>{exam.modality}</span>
                                         <span className="text-slate-500 text-[10px]">|</span>
-                                        <span className="text-slate-300 truncate">{exam.bodyPart}</span>
+                                        <span className="text-slate-300 truncate text-[11px]">{exam.studyDescription}</span>
                                     </div>
-                                    <div className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
-                                        <span>{exam.date} {exam.time}</span>
-                                        <span className="mx-0.5">•</span>
-                                        <span className="truncate">{exam.facility}</span>
+                                    <div className="text-[9px] text-slate-500 mt-1 flex items-center gap-1 uppercase tracking-tighter">
+                                        <span>{new Date(exam.studyDate).toLocaleDateString()}</span>
+                                        <span className="mx-0.5 opacity-30">•</span>
+                                        <span className="truncate">{exam.nodeName}</span>
                                     </div>
-                                </div>
-                                <div className="flex items-center text-slate-600">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg>
                                 </div>
                             </div>
                         );
@@ -183,71 +236,69 @@ export default function DashboardMedico({ stats }: { stats: any }) {
             </div>
 
             {/* CENTER PANEL: DICOM Viewer */}
-            <div className="flex-1">
+            <div className="flex-1 relative overflow-hidden bg-black flex flex-col">
+                <div className="absolute inset-0 z-0 opacity-20">
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+                        <defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="0.5"/></pattern></defs>
+                        <rect width="100%" height="100%" fill="url(#grid)" />
+                    </svg>
+                </div>
 
-                {selectedExamObj ? (
-                    <div key={`viewer-${selectedExamObj.id}`} className="absolute inset-0 flex flex-col">
+                {selectedExamObj ? (() => {
+                    const dicomStudy = DICOM_STORE.find(s => s.studyInstanceUID === (selectedExamObj as any).studyInstanceUID) || DICOM_STORE[0];
+                    return (
+                        <div key={`viewer-${selectedExamObj.id}`} className="absolute inset-0 flex flex-col z-10">
 
-                        {/* Top viewer controls logic mock */}
-                        <div className="flex items-center gap-1 px-3 py-2 border-b border-white/5 bg-[#060A12]/80">
-                            <div className="p-1.5 rounded text-slate-500 hover:text-[#00D4BE] hover:bg-[#00D4BE]/10 transition-all text-xs">
-                                <svg width="12" height="12" className="text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" /></svg>
+                            {/* Top viewer controls */}
+                            <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 bg-[#060A12]/90 backdrop-blur-xl">
+                                <div className="flex items-center gap-1">
+                                    <div className="p-1 px-2 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-500 text-[10px] font-black uppercase tracking-widest">
+                                        Live Preview
+                                    </div>
+                                    <span className="text-slate-500 text-[10px] font-mono ml-2">ID: {selectedExamObj.id}</span>
+                                </div>
+                                <div className="flex items-center gap-3 font-mono text-[10px]">
+                                     <div className="flex gap-2 text-slate-400">
+                                         <span>MOD: <b className="text-white">{selectedExamObj.modality}</b></span>
+                                         <span>SRC: <b className="text-white">{selectedExamObj.nodeName}</b></span>
+                                     </div>
+                                </div>
                             </div>
-                            <div className="p-1.5 rounded text-slate-500 hover:text-[#00D4BE] hover:bg-[#00D4BE]/10 transition-all text-xs">
-                                <svg width="12" height="12" className="text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
+
+                            {/* Professional Viewport Integration */}
+                            <div className="relative flex-1">
+                                <DicomViewport 
+                                    study={dicomStudy}
+                                    seriesIndex={0}
+                                    isActive={true}
+                                    onActivate={() => {}}
+                                />
+                                
+                                <div className="absolute top-4 right-4 z-40">
+                                    <Link 
+                                        href={`/dashboard/paziente/esami/${selectedExamId}`}
+                                        className="px-4 py-2 bg-cyan-500 text-slate-900 font-black text-[10px] rounded-lg uppercase tracking-widest hover:bg-cyan-400 decoration-0 shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center gap-2"
+                                        style={{ textDecoration: 'none' }}
+                                    >
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
+                                        Apri Workstation Full
+                                    </Link>
+                                </div>
+                            </div>
+
+                            {/* Bottom series info bar (Dashboard version) */}
+                            <div className="bg-[#060A12]/90 border-t border-white/5 py-1 px-4 flex items-center justify-between shrink-0">
+                                <div className="text-[9px] font-mono text-slate-500 italic uppercase">
+                                    Scorri la rotella sull'immagine per navigare le slice di anteprima
+                                </div>
+                                <div className="flex gap-1 items-center">
+                                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Server Connected</span>
+                                </div>
                             </div>
                         </div>
-
-                        {/* Viewer Canvas displaying a static MR image for realism */}
-                        <div className="relative flex-1 bg-black flex items-center justify-center overflow-hidden">
-
-                            {/* Medical Image Background Placeholder based on mock */}
-                            {selectedExamObj.modality === 'RMN' || selectedExamObj.modality === 'TC' || selectedExamObj.modality === 'RX' ? (
-                                <div className="absolute inset-0 bg-[url('https://upload.wikimedia.org/wikipedia/commons/thumb/c/cf/MRI_of_the_human_shoulder.jpg/800px-MRI_of_the_human_shoulder.jpg')] bg-contain bg-center bg-no-repeat opacity-80 mix-blend-screen scale-110 grayscale" style={{ filter: 'contrast(1.2) brightness(0.9)' }}></div>
-                            ) : (
-                                <svg viewBox="0 0 200 200" className="w-[60%] h-[60%] text-slate-800/80 drop-shadow-[0_0_25px_rgba(255,255,255,0.06)] animate-[scale-in_0.5s_ease-out]">
-                                    <circle cx="100" cy="100" r="70" fill="currentColor" opacity="0.3"></circle>
-                                    <ellipse cx="100" cy="100" rx="40" ry="50" fill="currentColor" opacity="0.8"></ellipse>
-                                </svg>
-                            )}
-
-                            {/* Crosshair teal */}
-                            <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
-                                <line x1="50%" y1="0" x2="50%" y2="100%" stroke="#00D4BE" strokeWidth="0.5" strokeOpacity="0.4"/>
-                                <line x1="0" y1="50%" x2="100%" y2="50%" stroke="#00D4BE" strokeWidth="0.5" strokeOpacity="0.4"/>
-                            </svg>
-
-                            {/* Viewer Overlays Top */}
-                            <div className="absolute top-4 left-4 flex flex-col gap-0.5 text-[9px] font-mono text-slate-300">
-                                <span>{selectedExamObj.patient.toUpperCase()}</span>
-                                <span>PID: {selectedExamObj.id}</span>
-                                <span>DOB: {selectedExamObj.dob}</span>
-                                <span>{selectedExamObj.facility}</span>
-                            </div>
-                            <div className="absolute top-4 right-4 flex flex-col gap-0.5 text-[9px] font-mono text-slate-300 text-right">
-                                <span className="text-[#00D4BE]">{selectedExamObj.modality}</span>
-                                <span>{selectedExamObj.date}</span>
-                                <span>Acq/Ser: 1/1</span>
-                            </div>
-
-                            {/* Viewer Overlays Bottom */}
-                            <div className="absolute bottom-3 left-3 text-[#00D4BE]/70 text-[9px] font-mono leading-relaxed space-y-0.5">
-                                <span>IM: 3/52</span>
-                                <span>Se: 1</span>
-                                <span>WL: 380</span>
-                                <span>WW: 1800</span>
-                            </div>
-
-                            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[9px] font-bold tracking-widest text-amber-400/80 bg-amber-400/5 border border-amber-400/20 px-2 py-0.5 rounded">
-                                COMPRESSED WEB VIEW
-                            </div>
-                            <div className="absolute bottom-3 right-3 text-[10px] font-mono text-white">
-                                Zoom: 1.2x
-                            </div>
-                        </div>
-
-                    </div>
-                ) : (
+                    );
+                })() : (
                     <div className="flex-1 flex items-center justify-center text-slate-600 text-[10px] tracking-widest font-mono">
                         [ NO DICOM DATA ]
                     </div>
@@ -264,10 +315,18 @@ export default function DashboardMedico({ stats }: { stats: any }) {
                             <span className="text-[#0A0E1A] font-bold text-sm tracking-wide">Medical Report</span>
                         </div>
                         {/* Sottotitolo esame */}
-                        <div className="px-4 py-2 bg-[#00D4BE]/5 border-b border-[#00D4BE]/15">
-                            <span className="text-[#00D4BE] text-[11px] font-bold tracking-widest uppercase">
-                                {selectedExamObj.modality} — {selectedExamObj.bodyPart}
+                        <div className="px-4 py-2 bg-[#00D4BE]/5 border-b border-[#00D4BE]/15 flex items-center justify-between">
+                            <span className="text-[#00D4BE] text-[11px] font-bold tracking-widest uppercase truncate max-w-[70%]">
+                                {selectedExamObj.modality} — {selectedExamObj.studyDescription}
                             </span>
+                            <button 
+                                onClick={runAiReport}
+                                disabled={isAiGenerating}
+                                className={`p-1.5 rounded-lg border transition-all ${isAiGenerating ? 'animate-pulse bg-purple-500 text-white border-purple-400' : 'bg-white text-purple-600 border-purple-100 hover:bg-purple-50 shadow-sm'}`}
+                                title="Genera Referto con AI"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>
+                            </button>
                         </div>
 
                         {/* Report Body */}

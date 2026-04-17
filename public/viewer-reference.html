@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RIS-PACS ANDROMEDA</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --navy: #0a0e1a;
+      --navy2: #0d1b2a;
+      --teal: #00e5ff;
+      --teal2: #00bcd4;
+      --glass: rgba(255,255,255,0.05);
+      --glass-border: rgba(0,229,255,0.2);
+      --text: #e0f7fa;
+      --subtext: #78909c;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--navy);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── NAVBAR ── */
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 48px;
+      background: rgba(10,14,26,0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--glass-border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo { font-size: 1.4rem; font-weight: 800; letter-spacing: 2px; }
+    .logo span { color: var(--teal); text-shadow: 0 0 16px #00e5ff88; }
+    .nav-tabs { display: flex; gap: 8px; }
+    .tab-btn {
+      padding: 10px 28px; border-radius: 50px;
+      border: 1.5px solid var(--glass-border);
+      background: var(--glass); color: var(--subtext);
+      font-size: .95rem; font-weight: 600; cursor: pointer;
+      transition: all .3s;
+    }
+    .tab-btn.active, .tab-btn:hover {
+      background: var(--teal); color: #0a0e1a;
+      border-color: var(--teal);
+      box-shadow: 0 0 20px #00e5ff55;
+    }
+
+    /* ── SECTIONS ── */
+    .section { display: none; padding: 40px 48px; }
+    .section.active { display: block; }
+
+    /* ── GRID ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; }
+
+    /* ── GLASS CARD ── */
+    .card {
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      border-radius: 20px;
+      padding: 24px;
+      backdrop-filter: blur(10px);
+      transition: transform .3s, box-shadow .3s;
+    }
+    .card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px #00e5ff18; }
+    .card-title { font-size: .75rem; font-weight: 600; color: var(--teal); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
+    .card-value { font-size: 2rem; font-weight: 800; }
+    .card-sub { font-size: .85rem; color: var(--subtext); margin-top: 4px; }
+
+    /* ── PAGE TITLE ── */
+    .page-header { margin-bottom: 32px; }
+    .page-header h2 { font-size: 1.8rem; font-weight: 800; }
+    .page-header p { color: var(--subtext); margin-top: 6px; }
+
+    /* ── IMAGE VIEWER ── */
+    .viewer-wrapper {
+      background: #000;
+      border-radius: 20px;
+      border: 1px solid var(--glass-border);
+      overflow: hidden;
+      position: relative;
+    }
+    .viewer-toolbar {
+      display: flex; gap: 10px; align-items: center;
+      padding: 12px 20px;
+      background: rgba(0,0,0,0.6);
+      border-bottom: 1px solid var(--glass-border);
+      flex-wrap: wrap;
+    }
+    .viewer-toolbar label { font-size: .8rem; color: var(--subtext); margin-right: 4px; }
+    .viewer-toolbar input[type=range] {
+      accent-color: var(--teal); width: 100px; cursor: pointer;
+    }
+    .tool-btn {
+      padding: 6px 14px; border-radius: 8px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass); color: var(--text);
+      font-size: .8rem; cursor: pointer; transition: all .2s;
+    }
+    .tool-btn:hover { background: var(--teal); color: #000; border-color: var(--teal); }
+    .viewer-canvas-wrap {
+      display: flex; justify-content: center; align-items: center;
+      min-height: 380px; background: #050a12;
+      position: relative; overflow: hidden;
+    }
+    .viewer-img {
+      max-width: 100%; max-height: 380px;
+      object-fit: contain; cursor: zoom-in;
+      transition: transform .3s;
+      filter: brightness(1) contrast(1);
+    }
+    .viewer-info {
+      padding: 12px 20px;
+      display: flex; gap: 24px; flex-wrap: wrap;
+      background: rgba(0,0,0,0.5);
+      border-top: 1px solid var(--glass-border);
+    }
+    .viewer-info span { font-size: .78rem; color: var(--subtext); }
+    .viewer-info span b { color: var(--teal); }
+
+    /* ── EXAM LIST ── */
+    .exam-item {
+      display: flex; align-items: center; gap: 16px;
+      padding: 14px 18px; border-radius: 14px;
+      border: 1px solid var(--glass-border);
+      background: var(--glass); cursor: pointer;
+      margin-bottom: 10px; transition: all .25s;
+    }
+    .exam-item:hover, .exam-item.selected {
+      border-color: var(--teal); background: rgba(0,229,255,0.07);
+    }
+    .exam-thumb {
+      width: 52px; height: 52px; border-radius: 10px;
+      background: #0d1b2a; display: flex; align-items: center;
+      justify-content: center; font-size: 1.4rem; flex-shrink: 0;
+    }
+    .exam-meta { flex: 1; }
+    .exam-name { font-weight: 600; font-size: .95rem; }
+    .exam-date { font-size: .8rem; color: var(--subtext); margin-top: 3px; }
+    .exam-badge {
+      padding: 4px 10px; border-radius: 20px; font-size: .72rem;
+      font-weight: 700; background: rgba(0,229,255,0.12); color: var(--teal);
+      border: 1px solid rgba(0,229,255,0.25);
+    }
+
+    /* ── STATS ROW ── */
+    .stats-row { display: flex; gap: 20px; margin-bottom: 28px; flex-wrap: wrap; }
+    .stats-row .card { flex: 1; min-width: 160px; }
+
+    /* ── PATIENT HERO ── */
+    .patient-hero {
+      background: linear-gradient(135deg, #0d1b2a, #0a1628);
+      border: 1px solid var(--glass-border);
+      border-radius: 24px; padding: 32px;
+      display: flex; align-items: center; gap: 28px;
+      margin-bottom: 28px;
+    }
+    .patient-avatar {
+      width: 80px; height: 80px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--teal2), #1565c0);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2rem; flex-shrink: 0;
+      box-shadow: 0 0 24px #00e5ff44;
+    }
+    .patient-info h3 { font-size: 1.4rem; font-weight: 700; }
+    .patient-info p { color: var(--subtext); margin-top: 4px; }
+    .patient-tags { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .ptag {
+      padding: 4px 12px; border-radius: 20px; font-size: .78rem;
+      background: rgba(0,229,255,0.1); color: var(--teal);
+      border: 1px solid rgba(0,229,255,0.2);
+    }
+
+    /* ── PATIENT EXAM CARD ── */
+    .exam-card {
+      background: var(--glass); border: 1px solid var(--glass-border);
+      border-radius: 20px; overflow: hidden; transition: all .3s; cursor: pointer;
+    }
+    .exam-card:hover { transform: translateY(-4px); box-shadow: 0 16px 48px #00e5ff1a; border-color: var(--teal); }
+    .exam-card-img {
+      width: 100%; height: 180px; object-fit: cover;
+      background: #050a12; display: flex; align-items: center;
+      justify-content: center; font-size: 3.5rem;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .exam-card-img img { width: 100%; height: 180px; object-fit: cover; }
+    .exam-card-body { padding: 16px; }
+    .exam-card-type { font-size: .72rem; font-weight: 700; color: var(--teal); text-transform: uppercase; letter-spacing: 1px; }
+    .exam-card-title { font-size: 1rem; font-weight: 700; margin-top: 4px; }
+    .exam-card-date { font-size: .8rem; color: var(--subtext); margin-top: 4px; }
+    .exam-card-status {
+      display: inline-block; margin-top: 10px;
+      padding: 4px 12px; border-radius: 20px; font-size: .75rem; font-weight: 600;
+    }
+    .status-ok { background: rgba(0,200,83,0.12); color: #00c853; border: 1px solid rgba(0,200,83,0.2); }
+    .status-pending { background: rgba(255,193,7,0.12); color: #ffc107; border: 1px solid rgba(255,193,7,0.2); }
+
+    /* ── MODAL ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.85); z-index: 999;
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: #0d1b2a; border: 1px solid var(--glass-border);
+      border-radius: 24px; padding: 32px; max-width: 700px; width: 95%;
+      max-height: 90vh; overflow-y: auto;
+    }
+    .modal h3 { font-size: 1.3rem; font-weight: 700; margin-bottom: 16px; }
+    .modal-img { width: 100%; border-radius: 14px; margin-bottom: 16px; }
+    .modal-close {
+      float: right; background: none; border: none;
+      color: var(--subtext); font-size: 1.4rem; cursor: pointer;
+    }
+    .modal-info { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+    .minfo-item { background: var(--glass); border-radius: 12px; padding: 12px; border: 1px solid var(--glass-border); }
+    .minfo-label { font-size: .72rem; color: var(--subtext); text-transform: uppercase; letter-spacing: 1px; }
+    .minfo-val { font-size: .95rem; font-weight: 600; margin-top: 3px; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 768px) {
+      nav { padding: 14px 20px; }
+      .section { padding: 24px 20px; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .stats-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAVBAR -->
+<nav>
+  <div class="logo">RIS-PACS <span>ANDROMEDA</span></div>
+  <div class="nav-tabs">
+    <button class="tab-btn active" onclick="showSection('doctor')">🩺 Medico</button>
+    <button class="tab-btn" onclick="showSection('patient')">👤 Paziente</button>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════ DOCTOR SECTION ═══════════════════════════════════ -->
+<div id="section-doctor" class="section active">
+
+  <div class="page-header">
+    <h2>Dashboard Radiologica</h2>
+    <p>Visualizzatore DICOM professionale — Dr. Antonazzo</p>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-row">
+    <div class="card"><div class="card-title">Esami Oggi</div><div class="card-value">24</div><div class="card-sub">↑ 3 nuovi</div></div>
+    <div class="card"><div class="card-title">In Attesa</div><div class="card-value">7</div><div class="card-sub">Da refertare</div></div>
+    <div class="card"><div class="card-title">Critici</div><div class="card-value" style="color:#ff5252">2</div><div class="card-sub">Priorità alta</div></div>
+    <div class="card"><div class="card-title">Refertati</div><div class="card-value" style="color:#00c853">15</div><div class="card-sub">Completati</div></div>
+  </div>
+
+  <!-- Viewer + List -->
+  <div class="grid-2" style="align-items: start;">
+
+    <!-- LEFT: Viewer -->
+    <div>
+      <div class="viewer-wrapper">
+        <div class="viewer-toolbar">
+          <label>Luminosità</label>
+          <input type="range" id="brightness" min="0.2" max="3" step="0.05" value="1" oninput="applyFilters()"/>
+          <label>Contrasto</label>
+          <input type="range" id="contrast" min="0.2" max="3" step="0.05" value="1" oninput="applyFilters()"/>
+          <button class="tool-btn" onclick="zoomIn()">🔍+</button>
+          <button class="tool-btn" onclick="zoomOut()">🔍−</button>
+          <button class="tool-btn" onclick="resetView()">↺ Reset</button>
+          <button class="tool-btn" onclick="invertImg()">⬛ Inverti</button>
+        </div>
+        <div class="viewer-canvas-wrap">
+          <img id="dicom-img" class="viewer-img"
+            src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png"
+            alt="DICOM Image"/>
+        </div>
+        <div class="viewer-info">
+          <span><b>Paziente:</b> Mario Rossi</span>
+          <span><b>Studio:</b> RMN Encefalo</span>
+          <span><b>Data:</b> 15/04/2026</span>
+          <span><b>Slice:</b> 14/42</span>
+          <span><b>Modalità:</b> MRI T2</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Exam List -->
+    <div>
+      <div style="margin-bottom:14px; font-size:.85rem; color:var(--subtext); font-weight:600; text-transform:uppercase; letter-spacing:1px;">Lista Esami</div>
+
+      <div class="exam-item selected" onclick="loadExam(this,'https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Ct-scan-3.jpg/320px-Ct-scan-3.jpg','TC Torace - Mario Rossi','TC Assiale','15/04/2026','22/48')">
+        <div class="exam-thumb">🧠</div>
+        <div class="exam-meta"><div class="exam-name">RMN Encefalo</div><div class="exam-date">Mario Rossi · 15/04/2026</div></div>
+        <div class="exam-badge">MRI</div>
+      </div>
+
+      <div class="exam-item" onclick="loadExam(this,'https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Ct-scan-3.jpg/320px-Ct-scan-3.jpg','TC Torace - Luigi Bianchi','TC Assiale','14/04/2026','38/60')">
+        <div class="exam-thumb">🫁</div>
+        <div class="exam-meta"><div class="exam-name">TC Torace</div><div class="exam-date">Luigi Bianchi · 14/04/2026</div></div>
+        <div class="exam-badge">CT</div>
+      </div>
+
+      <div class="exam-item" onclick="loadExam(this,'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Chest_Xray_PA_3-8-2010.png/300px-Chest_Xray_PA_3-8-2010.png','RX Torace - Anna Verdi','RX Proiezione PA','13/04/2026','1/1')">
+        <div class="exam-thumb">🦴</div>
+        <div class="exam-meta"><div class="exam-name">RX Torace</div><div class="exam-date">Anna Verdi · 13/04/2026</div></div>
+        <div class="exam-badge">RX</div>
+      </div>
+
+      <div class="exam-item" onclick="loadExam(this,'https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/MRI_of_Human_Brain.jpg/300px-MRI_of_Human_Brain.jpg','RMN Colonna - Carlo Neri','RMN Sagittale','12/04/2026','20/34')">
+        <div class="exam-thumb">🦴</div>
+        <div class="exam-meta"><div class="exam-name">RMN Colonna</div><div class="exam-date">Carlo Neri · 12/04/2026</div></div>
+        <div class="exam-badge">MRI</div>
+      </div>
+
+      <div class="exam-item" onclick="loadExam(this,'https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Ct-scan-3.jpg/320px-Ct-scan-3.jpg','TC Addome - Sara Esposito','TC con mdc','11/04/2026','55/90')">
+        <div class="exam-thumb">🫀</div>
+        <div class="exam-meta"><div class="exam-name">TC Addome</div><div class="exam-date">Sara Esposito · 11/04/2026</div></div>
+        <div class="exam-badge">CT</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════ PATIENT SECTION ═══════════════════════════════════ -->
+<div id="section-patient" class="section">
+
+  <div class="patient-hero">
+    <div class="patient-avatar">👤</div>
+    <div class="patient-info">
+      <h3>Mario Rossi</h3>
+      <p>Paziente · Cod. PA-20481 · Roma, Lazio</p>
+      <div class="patient-tags">
+        <span class="ptag">📅 Nato: 12/03/1978</span>
+        <span class="ptag">🩸 Gruppo: A+</span>
+        <span class="ptag">🏥 Asl Roma 1</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-header">
+    <h2>I Tuoi Esami</h2>
+    <p>Clicca su un esame per visualizzare le immagini</p>
+  </div>
+
+  <div class="grid-3">
+
+    <div class="exam-card" onclick="openModal('RMN Encefalo','Risonanza Magnetica','15/04/2026','Refertato','https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/MRI_of_Human_Brain.jpg/300px-MRI_of_Human_Brain.jpg','Nessuna alterazione focale rilevante. Strutture della linea mediana in sede.','MRI T2','Dr. Antonazzo','Ospedale Andromeda')">
+      <div class="exam-card-img"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/MRI_of_Human_Brain.jpg/300px-MRI_of_Human_Brain.jpg" alt="MRI"/></div>
+      <div class="exam-card-body">
+        <div class="exam-card-type">🧠 Risonanza Magnetica</div>
+        <div class="exam-card-title">RMN Encefalo</div>
+        <div class="exam-card-date">📅 15 Aprile 2026</div>
+        <span class="exam-card-status status-ok">✓ Refertato</span>
+      </div>
+    </div>
+
+    <div class="exam-card" onclick="openModal('TC Torace','Tomografia Computerizzata','14/04/2026','Refertato','https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Ct-scan-3.jpg/320px-Ct-scan-3.jpg','Parenchima polmonare nella norma. Non versamenti pleurici.','TC Assiale','Dr. Antonazzo','Ospedale Andromeda')">
+      <div class="exam-card-img"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Ct-scan-3.jpg/320px-Ct-scan-3.jpg" alt="CT"/></div>
+      <div class="exam-card-body">
+        <div class="exam-card-type">🫁 TC</div>
+        <div class="exam-card-title">TC Torace</div>
+        <div class="exam-card-date">📅 14 Aprile 2026</div>
+        <span class="exam-card-status status-ok">✓ Refertato</span>
+      </div>
+    </div>
+
+    <div class="exam-card" onclick="openModal('RX Torace','Radiografia','13/04/2026','In attesa','https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Chest_Xray_PA_3-8-2010.png/300px-Chest_Xray_PA_3-8-2010.png','Referto in elaborazione. Disponibile entro 24 ore.','RX PA','Dr. Antonazzo','Ospedale Andromeda')">
+      <div class="exam-card-img"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/Chest_Xray_PA_3-8-2010.png/300px-Chest_Xray_PA_3-8-2010.png" alt="RX"/></div>
+      <div class="exam-card-body">
+        <div class="exam-card-type">🦴 Radiografia</div>
+        <div class="exam-card-title">RX Torace</div>
+        <div class="exam-card-date">📅 13 Aprile 2026</div>
+        <span class="exam-card-status status-pending">⏳ In attesa</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL PAZIENTE -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <h3 id="modal-title">Esame</h3>
+    <img id="modal-img" class="modal-img" src="" alt=""/>
+    <p id="modal-report" style="color:var(--subtext); font-size:.9rem; line-height:1.6; margin-top:8px;"></p>
+    <div class="modal-info">
+      <div class="minfo-item"><div class="minfo-label">Tipo</div><div class="minfo-val" id="mi-tipo"></div></div>
+      <div class="minfo-item"><div class="minfo-label">Data</div><div class="minfo-val" id="mi-data"></div></div>
+      <div class="minfo-item"><div class="minfo-label">Modalità</div><div class="minfo-val" id="mi-mod"></div></div>
+      <div class="minfo-item"><div class="minfo-label">Medico</div><div class="minfo-val" id="mi-medico"></div></div>
+      <div class="minfo-item"><div class="minfo-label">Struttura</div><div class="minfo-val" id="mi-struttura"></div></div>
+      <div class="minfo-item"><div class="minfo-label">Stato</div><div class="minfo-val" id="mi-stato"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let zoomLevel = 1, inverted = false;
+
+  function showSection(name) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('section-' + name).classList.add('active');
+    event.target.classList.add('active');
+  }
+
+  function applyFilters() {
+    const img = document.getElementById('dicom-img');
+    const b = document.getElementById('brightness').value;
+    const c = document.getElementById('contrast').value;
+    const inv = inverted ? 'invert(1)' : '';
+    img.style.filter = `brightness(${b}) contrast(${c}) ${inv}`;
+  }
+
+  function zoomIn() {
+    zoomLevel = Math.min(zoomLevel + 0.2, 4);
+    document.getElementById('dicom-img').style.transform = `scale(${zoomLevel})`;
+  }
+  function zoomOut() {
+    zoomLevel = Math.max(zoomLevel - 0.2, 0.5);
+    document.getElementById('dicom-img').style.transform = `scale(${zoomLevel})`;
+  }
+  function resetView() {
+    zoomLevel = 1; inverted = false;
+    document.getElementById('brightness').value = 1;
+    document.getElementById('contrast').value = 1;
+    document.getElementById('dicom-img').style.transform = 'scale(1)';
+    applyFilters();
+  }
+  function invertImg() {
+    inverted = !inverted; applyFilters();
+  }
+
+  function loadExam(el, imgSrc, studio, modalita, data, slice) {
+    document.querySelectorAll('.exam-item').forEach(e => e.classList.remove('selected'));
+    el.classList.add('selected');
+    const img = document.getElementById('dicom-img');
+    img.src = imgSrc;
+    document.querySelectorAll('.viewer-info span')[1].innerHTML = `<b>Studio:</b> ${studio}`;
+    document.querySelectorAll('.viewer-info span')[2].innerHTML = `<b>Data:</b> ${data}`;
+    document.querySelectorAll('.viewer-info span')[3].innerHTML = `<b>Slice:</b> ${slice}`;
+    document.querySelectorAll('.viewer-info span')[4].innerHTML = `<b>Modalità:</b> ${modalita}`;
+    resetView();
+  }
+
+  function openModal(title, tipo, data, stato, img, report, mod, medico, struttura) {
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-img').src = img;
+    document.getElementById('modal-report').textContent = '📋 Referto: ' + report;
+    document.getElementById('mi-tipo').textContent = tipo;
+    document.getElementById('mi-data').textContent = data;
+    document.getElementById('mi-mod').textContent = mod;
+    document.getElementById('mi-medico').textContent = medico;
+    document.getElementById('mi-struttura').textContent = struttura;
+    document.getElementById('mi-stato').textContent = stato;
+    document.getElementById('modal').classList.add('open');
+  }
+  function closeModal() {
+    document.getElementById('modal').classList.remove('open');
+  }
+</script>
+</body>
+</html>

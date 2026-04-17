@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { formatDateTime, getStatoLabel, getStatoColor, getModalitaLabel } from '@/lib/utils';
+import ImageViewer from '@/components/ImageViewer';
+// TODO: replace with real role check (e.g., from session)
+const isAdmin = true; // placeholder
 
 interface StudyDetail {
     id: string;
@@ -39,6 +42,7 @@ export default function StudioDetailPage() {
     const [loading, setLoading] = useState(true);
     const [referto, setReferto] = useState('');
     const [savingReferto, setSavingReferto] = useState(false);
+const [uploadProgress, setUploadProgress] = useState<Array<{fileName:string; percent:number}>>([]);
     const [shareUrl, setShareUrl] = useState('');
     const [sharing, setSharing] = useState(false);
 
@@ -68,6 +72,79 @@ export default function StudioDetailPage() {
             }
         } finally { setSavingReferto(false); }
     };
+
+// Upload handlers
+const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const files = e.target.files;
+  if (files) uploadFiles(Array.from(files));
+};
+
+const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+  e.preventDefault();
+  const items = e.dataTransfer.items;
+  if (!items) return;
+
+  const files: File[] = [];
+  
+  const traverseEntry = async (entry: any) => {
+    if (entry.isFile) {
+      const file = await new Promise<File>((resolve) => entry.file(resolve));
+      files.push(file);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const entries = await new Promise<any[]>((resolve) => reader.readEntries(resolve));
+      for (const child of entries) {
+        await traverseEntry(child);
+      }
+    }
+  };
+
+  const promises = [];
+  for (let i = 0; i < items.length; i++) {
+    const entry = items[i].webkitGetAsEntry();
+    if (entry) promises.push(traverseEntry(entry));
+  }
+  
+  await Promise.all(promises);
+  if (files.length > 0) uploadFiles(files);
+};
+
+const uploadFiles = async (files: File[]) => {
+  const progressArray = files.map(f => ({ fileName: f.name, percent: 0 }));
+  setUploadProgress(progressArray);
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('studyId', params.id as string);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/dicom/upload');
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(prev => {
+          const newArr = [...prev];
+          newArr[i] = { fileName: file.name, percent };
+          return newArr;
+        });
+      }
+    };
+    await new Promise<void>((resolve, reject) => {
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error('Upload failed'));
+      };
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.send(formData);
+    });
+  }
+  // Refetch study data after uploads
+  fetch(`/api/studi/${params.id}`)
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) setStudio(data.data);
+    });
+};
 
     const generateShareLink = async () => {
         setSharing(true);
@@ -171,34 +248,55 @@ export default function StudioDetailPage() {
                 </div>
             </div>
 
-            {/* Image count */}
-            <div className="glass-card p-6">
-                <h2 className="text-lg font-bold mb-3">Immagini DICOM</h2>
-                {studio.series.length > 0 ? (
-                    <div className="space-y-3">
-                        {studio.series.map((s, i) => (
-                            <div key={s.id} className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'rgba(30, 41, 59, 0.4)' }}>
-                                <div>
-                                    <p className="font-medium text-sm">Serie {i + 1}: {s.descrizione || s.modalita || 'Senza nome'}</p>
-                                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-secondary)' }}>
-                                        {s.instances.length} immagin{s.instances.length === 1 ? 'e' : 'i'}
-                                    </p>
-                                </div>
-                                <span className="badge bg-blue-500/20 text-blue-400 border-blue-500/30">
-                                    {s.instances.length} file
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="text-center py-8" style={{ color: 'var(--color-text-secondary)' }}>
-                        <p>Nessuna immagine caricata</p>
-                        <Link href="/dashboard/upload" className="btn-primary mt-3 inline-flex text-sm">
-                            Carica DICOM
-                        </Link>
-                    </div>
-                )}
+            {/* Clinical Image Viewer (Multi-Grid) */}
+            <div className="glass-card p-6 min-h-[700px]">
+                <h2 className="text-lg font-bold mb-4">Visualizzatore Immagini</h2>
+                <ImageViewer series={studio.series} />
             </div>
+
+            {/* Admin Upload Section */}
+            {isAdmin && (
+              <div className="glass-card p-6 mt-6">
+                <h2 className="text-lg font-bold mb-3">Carica Immagini DICOM</h2>
+                <div
+                  className="border-2 border-dashed border-gray-400 rounded-lg p-6 text-center cursor-pointer hover:bg-gray-100/10"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDrop}
+                >
+                  <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                    Trascina i file qui o clicca per selezionare
+                  </p>
+                  <div className="flex justify-center gap-3 mt-4">
+                    <label htmlFor="fileInput" className="btn-secondary text-xs cursor-pointer">
+                      📄 Seleziona File
+                    </label>
+                    <label className="btn-primary text-xs cursor-pointer">
+                      📁 Carica Cartella
+                      <input
+                        type="file"
+                        multiple
+                        // @ts-ignore
+                        webkitdirectory=""
+                        directory=""
+                        className="hidden"
+                        onChange={handleFileSelect}
+                      />
+                    </label>
+                  </div>
+                </div>
+                {uploadProgress.map((p, i) => (
+                  <div key={i} className="mt-2">
+                    <span className="text-sm">{p.fileName}</span>
+                    <div className="w-full bg-gray-300 rounded h-2 mt-1">
+                      <div
+                        className="bg-primary-500 h-2 rounded"
+                        style={{ width: `${p.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Report */}
             <div className="glass-card p-6">

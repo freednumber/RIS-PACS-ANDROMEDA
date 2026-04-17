@@ -101,6 +101,59 @@ const navItems: NavItem[] = [
             </svg>
         ),
     },
+    // ── PAZIENTE NAV ──
+    {
+        href: '/dashboard/paziente',
+        label: 'La mia Area',
+        roles: ['PAZIENTE'],
+        icon: (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="7" height="9" rx="1" />
+                <rect x="14" y="3" width="7" height="5" rx="1" />
+                <rect x="14" y="12" width="7" height="9" rx="1" />
+                <rect x="3" y="16" width="7" height="5" rx="1" />
+            </svg>
+        ),
+    },
+    {
+        href: '/dashboard/paziente/prenota',
+        label: 'Prenota Esame',
+        roles: ['PAZIENTE'],
+        icon: (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+                <line x1="12" y1="14" x2="12" y2="18" />
+                <line x1="10" y1="16" x2="14" y2="16" />
+            </svg>
+        ),
+    },
+    {
+        href: '/dashboard/paziente/appuntamenti',
+        label: 'Appuntamenti',
+        roles: ['PAZIENTE'],
+        icon: (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+        ),
+    },
+    {
+        href: '/dashboard/paziente/profilo',
+        label: 'I miei Dati',
+        roles: ['PAZIENTE'],
+        icon: (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+            </svg>
+        ),
+    },
 ];
 
 export default function Sidebar() {
@@ -130,10 +183,10 @@ export default function Sidebar() {
         <aside className="w-64 h-screen fixed left-0 top-0 flex flex-col p-4 border-r"
             style={{ background: 'rgba(15, 23, 42, 0.95)', borderColor: 'var(--color-border)' }}>
             {/* Logo */}
-            <div className="flex items-center gap-3 mb-8 px-3 pt-2">
-                <div className="w-20 h-20 shrink-0 drop-shadow-[0_0_12px_rgba(0,128,128,0.8)]"
+            <div className="flex flex-col items-center gap-1 mb-10 px-3 pt-4 text-center">
+                <div className="w-36 h-36 shrink-0 drop-shadow-[0_0_20px_rgba(0,212,190,0.6)]"
                     style={{
-                        background: 'linear-gradient(135deg, #20b2aa 0%, #008080 100%)',
+                        background: 'linear-gradient(135deg, #00D4BE 0%, #008080 100%)',
                         WebkitMaskImage: 'url(/andromeda-logo.png)',
                         WebkitMaskSize: 'contain',
                         WebkitMaskRepeat: 'no-repeat',
@@ -144,12 +197,21 @@ export default function Sidebar() {
                         maskPosition: 'center'
                     }} />
                 <div>
-                    <h2 className="font-bold text-sm text-white">Andromeda</h2>
-                    <p className="text-[10px] font-bold text-[#00D4BE] uppercase tracking-wider">
-                        {userRole === 'SEGRETERIA' ? 'SEGRETERIA / HUB' :
-                            userRole === 'TECNICO' ? 'TSRM / LOG' :
-                                userRole === 'MEDICO' ? 'AREA MEDICA' : 'DIREZIONALE'}
-                    </p>
+                    <h2 className="font-bold text-2xl text-white leading-tight mb-1">Andromeda</h2>
+                    <div className="flex flex-col items-center">
+                        <p className="text-[10px] font-bold text-[#00D4BE] uppercase tracking-[0.3em] mb-1">
+                            {userRole === 'PAZIENTE' ? 'PORTALE' : 
+                             userRole === 'MEDICO' ? 'AREA' : 
+                             userRole === 'TECNICO' ? 'TSRM' : 
+                             userRole === 'SEGRETERIA' ? 'SEGRETERIA' : 'SISTEMA'}
+                        </p>
+                        <p className="text-[10px] font-bold text-white uppercase tracking-[0.3em] opacity-80">
+                            {userRole === 'PAZIENTE' ? 'PAZIENTE' : 
+                             userRole === 'MEDICO' ? 'MEDICA' : 
+                             userRole === 'TECNICO' ? 'LOG' : 
+                             userRole === 'SEGRETERIA' ? 'HUB' : 'DIREZIONALE'}
+                        </p>
+                    </div>
                 </div>
             </div>
 

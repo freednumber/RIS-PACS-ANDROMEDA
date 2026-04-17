@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { formatDateTime, getStatoLabel, getStatoColor, getModalitaLabel } from '@/lib/utils';
 import type { DashboardStats, Ruolo } from '@/types';
 
@@ -27,7 +28,15 @@ export default function DashboardPage() {
             .finally(() => setLoading(false));
     }, []);
 
-    if (loading) {
+    const router = useRouter();
+
+    useEffect(() => {
+        if (userRole === 'PAZIENTE') {
+            router.replace('/dashboard/paziente');
+        }
+    }, [userRole, router]);
+
+    if (loading || userRole === 'PAZIENTE') {
         return (
             <div className="flex items-center justify-center h-64">
                 <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
@@ -38,7 +47,6 @@ export default function DashboardPage() {
     if (userRole === 'SEGRETERIA') return <DashboardSegreteria stats={stats} />;
     if (userRole === 'MEDICO') return <DashboardMedico stats={stats} />;
     if (userRole === 'TECNICO') return <DashboardTSRM stats={stats} />;
-    if (userRole === 'PAZIENTE') return <DashboardPaziente stats={stats} />;
 
     // Original dashboard as fallback for ADMIN
     const statCards = [
