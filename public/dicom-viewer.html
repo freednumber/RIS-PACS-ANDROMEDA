@@ -1,0 +1,3044 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ANDROMEDA DICOM Viewer</title>
+  <meta name="description" content="RIS-PACS ANDROMEDA — Professional DICOM Viewer with OHIF-style interface for medical imaging diagnostics"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+/* ═══════════════════════════════════════════════════════════════════
+   ANDROMEDA DICOM VIEWER — OHIF-style Professional Viewer
+   ═══════════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #000000;
+  --bg-surface: #1a1a1a;
+  --bg-surface-2: #2d2d2d;
+  --bg-toolbar: #202020;
+  --bg-sidebar: #1c1c1c;
+  --border-color: #444444;
+  --text-primary: #e0e0e0;
+  --text-muted: #a0a0a0;
+  --text-dim: #666666;
+  --accent-active: #4fc3f7;
+  --accent-hover: #29b6f6;
+  --accent-reference-axial: #ffff00;
+  --accent-reference-coronal: #00ff00;
+  --accent-reference-sagittal: #ff6666;
+  --accent-measurement: #ffd700;
+  --accent-roi: #4fc3f7;
+  --modal-overlay: rgba(0,0,0,0.85);
+  --ct-color: #4fc3f7;
+  --mr-color: #66bb6a;
+  --xr-color: #ffa726;
+  --us-color: #ab47bc;
+  --pt-color: #ef5350;
+  --nm-color: #26c6da;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #777; }
+
+/* ── ROOT LAYOUT ── */
+#viewer-root {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+#viewer-root:fullscreen,
+#viewer-root:-webkit-full-screen {
+  width: 100vw !important;
+  height: 100vh !important;
+}
+
+/* ══════════════════════════════ TOOLBAR ══════════════════════════════ */
+#toolbar {
+  height: 44px;
+  min-height: 44px;
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 2px;
+  z-index: 50;
+  user-select: none;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 4px;
+}
+.toolbar-group + .toolbar-group {
+  border-left: 1px solid #3a3a3a;
+  margin-left: 4px;
+  padding-left: 8px;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  flex-shrink: 0;
+}
+.toolbar-btn:hover {
+  background: #333;
+  color: var(--text-primary);
+}
+.toolbar-btn.active {
+  background: rgba(79,195,247,0.15);
+  color: var(--accent-active);
+}
+.toolbar-btn:focus-visible {
+  outline: 2px solid var(--accent-active);
+  outline-offset: 1px;
+}
+
+.toolbar-btn svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.8;
+}
+
+.toolbar-btn[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #333;
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 1000;
+}
+.toolbar-btn[data-tooltip]:hover::after {
+  opacity: 1;
+}
+
+.toolbar-spacer { flex: 1; }
+
+.toolbar-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-right: 4px;
+  font-weight: 500;
+}
+
+/* Layout selector dropdown */
+.layout-dropdown {
+  position: relative;
+}
+.layout-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 6px;
+  z-index: 200;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+.layout-dropdown-menu.open { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.layout-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 36px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #222;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.layout-option:hover {
+  border-color: var(--accent-active);
+  background: rgba(79,195,247,0.1);
+  color: var(--accent-active);
+}
+.layout-option.active {
+  border-color: var(--accent-active);
+  background: rgba(79,195,247,0.2);
+  color: var(--accent-active);
+}
+
+/* ══════════════════════════════ MAIN AREA ══════════════════════════════ */
+#main-area {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ══════════════════════════════ SIDEBAR ══════════════════════════════ */
+#sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.3s ease, min-width 0.3s ease;
+  z-index: 20;
+}
+#sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  border-right: none;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.sidebar-header h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-active);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.sidebar-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.sidebar-toggle-btn:hover { color: var(--text-primary); background: #333; }
+
+/* Study Info */
+.study-info {
+  padding: 12px 16px;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+.study-date {
+  font-size: 12px;
+  color: var(--accent-active);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.study-desc {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.study-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 3px;
+}
+
+/* Series List */
+.series-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.series-item {
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  position: relative;
+}
+.series-item:hover {
+  background: #252525;
+}
+.series-item.active {
+  background: rgba(79,195,247,0.08);
+  border-color: rgba(79,195,247,0.3);
+}
+.series-item.dragging {
+  opacity: 0.5;
+}
+
+.series-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 6px;
+  background: #111;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+.series-thumb canvas {
+  width: 100%;
+  height: 100%;
+}
+.series-thumb .modality-badge {
+  position: absolute;
+  bottom: 2px;
+  left: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+.modality-ct { background: rgba(79,195,247,0.8); color: #000; }
+.modality-mr { background: rgba(102,187,106,0.8); color: #000; }
+.modality-xr { background: rgba(255,167,38,0.8); color: #000; }
+.modality-us { background: rgba(171,71,188,0.8); color: #fff; }
+.modality-pt { background: rgba(239,83,80,0.8); color: #fff; }
+
+.series-info {
+  flex: 1;
+  min-width: 0;
+}
+.series-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.series-detail {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.series-slices {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.series-slices svg { width: 12px; height: 12px; }
+
+/* Drag & Drop Zone */
+.drag-drop-zone {
+  margin: 8px;
+  padding: 20px;
+  border: 2px dashed #444;
+  border-radius: 10px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
+  transition: border-color 0.2s, background 0.2s;
+  flex-shrink: 0;
+}
+.drag-drop-zone.dragover {
+  border-color: var(--accent-active);
+  background: rgba(79,195,247,0.05);
+  color: var(--accent-active);
+}
+.drag-drop-zone svg { width: 24px; height: 24px; margin-bottom: 6px; }
+
+/* ══════════════════════════════ VIEWPORT GRID ══════════════════════════════ */
+#viewport-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  gap: 2px;
+  background: #111;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.viewport-cell {
+  position: relative;
+  background: #000;
+  overflow: hidden;
+  border: 2px solid transparent;
+  min-width: 0;
+  min-height: 0;
+}
+.viewport-cell.active {
+  border-color: var(--accent-active);
+}
+.viewport-cell.expanded {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+}
+
+.viewport-cell canvas.dicom-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.viewport-cell canvas.overlay-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.viewport-cell canvas.measurement-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 6;
+}
+
+/* Viewport Overlays */
+.viewport-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+  z-index: 10;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  padding: 8px 10px;
+}
+
+.overlay-tl {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  line-height: 1.5;
+}
+.overlay-tr {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  text-align: right;
+  line-height: 1.5;
+}
+.overlay-bl {
+  position: absolute;
+  bottom: 8px;
+  left: 10px;
+  line-height: 1.5;
+}
+.overlay-br {
+  position: absolute;
+  bottom: 8px;
+  right: 10px;
+  text-align: right;
+  line-height: 1.5;
+}
+
+.overlay-orientation {
+  position: absolute;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-active);
+}
+.orient-top { top: 8px; left: 50%; transform: translateX(-50%); }
+.orient-bottom { bottom: 8px; left: 50%; transform: translateX(-50%); }
+.orient-left { left: 10px; top: 50%; transform: translateY(-50%); }
+.orient-right { right: 10px; top: 50%; transform: translateY(-50%); }
+
+/* Slice Progress bar */
+.slice-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: rgba(255,255,255,0.1);
+  z-index: 12;
+}
+.slice-progress-fill {
+  height: 100%;
+  background: var(--accent-active);
+  transition: width 0.1s ease;
+}
+
+/* ══════════════════════════════ STATUS BAR ══════════════════════════════ */
+#status-bar {
+  height: 24px;
+  min-height: 24px;
+  background: var(--bg-surface);
+  border-top: 1px solid #333;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 16px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  z-index: 50;
+}
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.status-item .status-label { color: var(--text-dim); }
+.status-item .status-value { color: var(--text-muted); }
+.status-separator { color: #444; }
+
+/* ══════════════════════════════ CONTEXT MENU ══════════════════════════════ */
+.context-menu {
+  display: none;
+  position: fixed;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 4px 0;
+  min-width: 220px;
+  z-index: 500;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.context-menu.open { display: block; }
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background 0.1s;
+}
+.ctx-item:hover {
+  background: rgba(79,195,247,0.12);
+}
+.ctx-item svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.ctx-item.active svg { color: var(--accent-active); }
+.ctx-item.active { color: var(--accent-active); }
+.ctx-separator {
+  height: 1px;
+  background: #3a3a3a;
+  margin: 4px 0;
+}
+
+/* ══════════════════════════════ CINE CONTROLS ══════════════════════════════ */
+.cine-controls {
+  display: none;
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30,30,30,0.95);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 8px 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  backdrop-filter: blur(8px);
+}
+.cine-controls.visible { display: flex !important; }
+.cine-controls.hidden { display: none !important; }
+
+.cine-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.cine-btn:hover { color: var(--text-primary); background: #444; }
+.cine-btn svg { width: 16px; height: 16px; }
+.cine-fps {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  min-width: 40px;
+  text-align: center;
+}
+.cine-slider {
+  width: 80px;
+  accent-color: var(--accent-active);
+}
+
+/* ══════════════════════════════ DICOM TAG BROWSER ══════════════════════════════ */
+.tag-browser-modal {
+  display: none;
+  position: fixed;
+  z-index: 600;
+}
+.tag-browser-modal.open { display: block; }
+
+.tag-browser {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  width: 700px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 16px 64px rgba(0,0,0,0.8);
+  overflow: hidden;
+  resize: both;
+  min-width: 400px;
+  min-height: 300px;
+}
+
+.tag-browser-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #333;
+  cursor: move;
+  flex-shrink: 0;
+}
+.tag-browser-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tag-browser-header h3 svg { width: 16px; height: 16px; color: var(--accent-active); }
+.tag-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.tag-close-btn:hover { background: #444; color: var(--text-primary); }
+
+.tag-search {
+  padding: 8px 16px;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+.tag-search input {
+  width: 100%;
+  padding: 8px 12px;
+  background: #222;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  outline: none;
+}
+.tag-search input:focus { border-color: var(--accent-active); }
+.tag-search input::placeholder { color: var(--text-dim); }
+
+.tag-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+.tag-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.tag-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.tag-table th {
+  background: #252525;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #333;
+}
+.tag-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid #222;
+  color: var(--text-primary);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-table tr:hover td { background: rgba(79,195,247,0.04); }
+
+/* ══════════════════════════════ MAGNIFY PROBE ══════════════════════════════ */
+.magnify-lens {
+  display: none;
+  position: absolute;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-active);
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 30;
+  box-shadow: 0 0 20px rgba(0,0,0,0.8), inset 0 0 10px rgba(0,0,0,0.3);
+}
+.magnify-lens canvas {
+  width: 100%;
+  height: 100%;
+}
+
+/* ══════════════════════════════ HAMBURGER (MOBILE) ══════════════════════════════ */
+.hamburger-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.hamburger-btn:hover { background: #333; color: var(--text-primary); }
+.hamburger-btn svg { width: 18px; height: 18px; }
+
+@media (max-width: 768px) {
+  .hamburger-btn { display: flex; }
+  #sidebar {
+    position: absolute;
+    top: 44px;
+    left: 0;
+    bottom: 24px;
+    z-index: 100;
+    width: 280px;
+    min-width: 280px;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+  }
+  #sidebar.mobile-open {
+    transform: translateX(0);
+  }
+  #sidebar.collapsed {
+    transform: translateX(-100%);
+  }
+}
+
+/* ══════════════════════════════ CURSORS ══════════════════════════════ */
+.cursor-wl { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke='%2300bcd4' stroke-width='2'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='4' y1='12' x2='20' y2='12'/%3E%3Cline x1='12' y1='4' x2='12' y2='20'/%3E%3C/svg%3E") 12 12, crosshair; }
+.cursor-zoom { cursor: zoom-in; }
+.cursor-pan { cursor: grab; }
+.cursor-pan-active { cursor: grabbing !important; }
+.cursor-length { cursor: crosshair; }
+.cursor-angle { cursor: crosshair; }
+.cursor-probe { cursor: crosshair; }
+.cursor-roi { cursor: crosshair; }
+.cursor-magnify { cursor: none; }
+
+/* ══════════════════════════════ MISC ══════════════════════════════ */
+.loading-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.7);
+  z-index: 50;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #444;
+  border-top-color: var(--accent-active);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-right: 8px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Notification Toast */
+.toast {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 13px;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+}
+.toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════ VIEWER ROOT ═══════════════════════════════════ -->
+<div id="viewer-root">
+
+  <!-- ═════════════ TOOLBAR ═════════════ -->
+  <div id="toolbar">
+    <!-- Hamburger (mobile) -->
+    <button class="hamburger-btn" id="hamburger-btn" aria-label="Toggle Sidebar" onclick="toggleMobileSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+
+    <!-- Desktop Sidebar Toggle -->
+    <button class="toolbar-btn" style="margin-right: 8px; margin-left: 4px;" aria-label="Toggle Sidebar" onclick="toggleSidebar()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+    </button>
+
+    <!-- Logo -->
+    <div style="display:flex;align-items:center;gap:8px;margin-right:16px;">
+      <div style="width: 22px; height: 22px; background: linear-gradient(135deg, #00D4BE 0%, #008080 100%); -webkit-mask-image: url(/andromeda-logo.png); -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;"></div>
+      <span style="font-size:12px;font-weight:800;color:var(--text-primary);letter-spacing:1px;font-family:var(--font-ui)">ANDROMEDA Viewer</span>
+    </div>
+
+    <!-- Measurement Tools -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn active" id="tool-wl" data-tooltip="Window/Level (W)" aria-label="Window Level tool" onclick="setTool('wl')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20z"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-zoom" data-tooltip="Zoom (Z)" aria-label="Zoom tool" onclick="setTool('zoom')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-pan" data-tooltip="Pan (P)" aria-label="Pan tool" onclick="setTool('pan')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-2c-2.76 0-3.56-2-5-4l-1.26-2.26A1.53 1.53 0 0 1 7 14.13a1.53 1.53 0 0 1 1.84-.33"/></svg>
+      </button>
+    </div>
+
+    <!-- Measurement Tools -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn" id="tool-length" data-tooltip="Length (L)" aria-label="Length measurement" onclick="setTool('length')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.4 2.4 0 0 1 0-3.4l2.6-2.6a2.4 2.4 0 0 1 3.4 0z"/><path d="M14.5 12.5l2-2"/><path d="M11.5 9.5l2-2"/><path d="M8.5 6.5l2-2"/><path d="M17.5 15.5l2-2"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-angle" data-tooltip="Angle (A)" aria-label="Angle measurement" onclick="setTool('angle')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 16H3V8"/><path d="M6 16l6-12"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-cobb" data-tooltip="Cobb Angle" aria-label="Cobb angle measurement" onclick="setTool('cobb')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="4"/><line x1="3" y1="20" x2="21" y2="18"/><path d="M12 4v16" stroke-dasharray="3 3"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-probe" data-tooltip="Probe" aria-label="Probe tool" onclick="setTool('probe')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="9"/><line x1="12" y1="15" x2="12" y2="22"/><line x1="2" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="22" y2="12"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-ellipse" data-tooltip="Ellipse ROI" aria-label="Ellipse ROI" onclick="setTool('ellipse')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="7"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-rect" data-tooltip="Rectangle ROI" aria-label="Rectangle ROI" onclick="setTool('rect')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+      </button>
+    </div>
+
+    <!-- Image Tools -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn" id="tool-invert" data-tooltip="Invert (I)" aria-label="Invert colors" onclick="invertImage()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2v20" /><path d="M12 2a10 10 0 0 1 0 20" fill="currentColor" opacity="0.3"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-rotate" data-tooltip="Rotate Right" aria-label="Rotate 90 degrees" onclick="rotateImage()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-flip" data-tooltip="Flip Horizontal" aria-label="Flip horizontal" onclick="flipImage()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="2" x2="12" y2="22"/><polyline points="4 9 2 12 4 15"/><polyline points="20 9 22 12 20 15"/><path d="M2 12h6"/><path d="M16 12h6"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-reset" data-tooltip="Reset View" aria-label="Reset view" onclick="resetView()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+    </div>
+
+    <!-- Cine & Capture -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn" id="tool-cine" data-tooltip="Cine (C)" aria-label="Cine mode" onclick="toggleCine()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-magnify" data-tooltip="Magnify Probe" aria-label="Magnify probe" onclick="setTool('magnify')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </button>
+    </div>
+
+    <!-- Toggles -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn active" id="tool-overlay" data-tooltip="Image Overlay" aria-label="Toggle overlay" onclick="toggleOverlay()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-reflines" data-tooltip="Reference Lines" aria-label="Reference lines" onclick="toggleReferenceLines()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="2" x2="12" y2="22" stroke-dasharray="4 2"/><line x1="2" y1="12" x2="22" y2="12" stroke-dasharray="4 2"/></svg>
+      </button>
+      <button class="toolbar-btn" id="tool-sync" data-tooltip="Image Slice Sync" aria-label="Sync slices" onclick="toggleSliceSync()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+      </button>
+    </div>
+
+    <div class="toolbar-spacer"></div>
+
+    <!-- Layout Selector -->
+    <div class="toolbar-group">
+      <div class="layout-dropdown" id="layout-dropdown">
+        <button class="toolbar-btn" id="tool-layout" data-tooltip="Layout" aria-label="Change layout" onclick="toggleLayoutMenu()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        </button>
+        <div class="layout-dropdown-menu" id="layout-menu">
+          <div class="layout-option active" onclick="setLayout(1,1)" data-layout="1x1">1×1</div>
+          <div class="layout-option" onclick="setLayout(1,2)" data-layout="1x2">1×2</div>
+          <div class="layout-option" onclick="setLayout(2,1)" data-layout="2x1">2×1</div>
+          <div class="layout-option" onclick="setLayout(2,2)" data-layout="2x2">2×2</div>
+          <div class="layout-option" onclick="setLayout(3,1)" data-layout="3x1">3×1</div>
+          <div class="layout-option" onclick="setLayout(1,3)" data-layout="1x3">1×3</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DICOM Tag Browser & Fullscreen -->
+    <div class="toolbar-group">
+      <button class="toolbar-btn" id="tool-tags" data-tooltip="DICOM Tag Browser" aria-label="DICOM Tag Browser" onclick="openTagBrowser()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+      </button>
+      <button class="toolbar-btn" id="btn-fullscreen" data-tooltip="Fullscreen (F)" aria-label="Toggle fullscreen" onclick="toggleFullscreen()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" id="fs-icon-expand"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ═════════════ MAIN AREA ═════════════ -->
+  <div id="main-area">
+
+    <!-- ═════════════ SIDEBAR ═════════════ -->
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <h3>Studies</h3>
+        <button class="sidebar-toggle-btn" aria-label="Collapse sidebar" onclick="toggleSidebar()">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+        </button>
+      </div>
+
+      <!-- Study Info -->
+      <div class="study-info">
+        <div class="study-date">20-Feb-2026</div>
+        <div class="study-desc">CT CHEST W CONTRAST</div>
+        <div class="study-meta">Rossi, Mario · M · 48y · ID: 302028</div>
+      </div>
+
+      <!-- Series List -->
+      <div class="series-list" id="series-list">
+        <!-- Series items will be dynamically populated -->
+      </div>
+
+      <!-- Drag & Drop -->
+      <div class="drag-drop-zone" id="drag-drop-zone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div>Drop DICOM files here</div>
+        <div style="font-size:10px;margin-top:4px;color:#555;">or click to browse</div>
+      </div>
+    </div>
+
+    <!-- ═════════════ VIEWPORT GRID ═════════════ -->
+    <div id="viewport-grid">
+      <!-- Viewports will be dynamically created -->
+    </div>
+  </div>
+
+  <!-- ═════════════ STATUS BAR ═════════════ -->
+  <div id="status-bar">
+    <span class="status-item"><span class="status-label">Tool:</span><span class="status-value" id="status-tool">Window/Level</span></span>
+    <span class="status-separator">|</span>
+    <span class="status-item"><span class="status-label">Pos:</span><span class="status-value" id="status-pos">—</span></span>
+    <span class="status-separator">|</span>
+    <span class="status-item"><span class="status-label">HU:</span><span class="status-value" id="status-hu">—</span></span>
+    <span class="status-separator">|</span>
+    <span class="status-item"><span class="status-label">W:</span><span class="status-value" id="status-ww">400</span> <span class="status-label">L:</span><span class="status-value" id="status-wl">40</span></span>
+    <span class="status-separator">|</span>
+    <span class="status-item"><span class="status-label">Zoom:</span><span class="status-value" id="status-zoom">100%</span></span>
+    <span class="toolbar-spacer"></span>
+    <span class="status-item" style="color:var(--text-dim);">ANDROMEDA PACS v3.0</span>
+  </div>
+</div>
+
+<!-- ═════════════ CONTEXT MENU ═════════════ -->
+<div class="context-menu" id="context-menu">
+  <div class="ctx-item" onclick="resetView()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Reset View</div>
+  <div class="ctx-item" onclick="rotateImage()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Rotate Right</div>
+  <div class="ctx-item" onclick="flipImage()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="2" x2="12" y2="22"/><path d="M2 12h6"/><path d="M16 12h6"/></svg>Flip Horizontal</div>
+  <div class="ctx-separator"></div>
+  <div class="ctx-item" id="ctx-sync" onclick="toggleSliceSync()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/></svg>Image Slice Sync</div>
+  <div class="ctx-item" id="ctx-reflines" onclick="toggleReferenceLines()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="2" x2="12" y2="22" stroke-dasharray="4 2"/></svg>Reference Lines</div>
+  <div class="ctx-item" id="ctx-overlay" onclick="toggleOverlay()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>Image Overlay</div>
+  <div class="ctx-separator"></div>
+  <div class="ctx-item" onclick="setTool('scroll')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="2" width="12" height="20" rx="3"/><line x1="12" y1="6" x2="12" y2="10"/></svg>Stack Scroll</div>
+  <div class="ctx-item" onclick="invertImage()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 2v20"/></svg>Invert</div>
+  <div class="ctx-item" onclick="setTool('probe')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="9"/></svg>Probe</div>
+  <div class="ctx-item" onclick="toggleCine()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>Cine</div>
+  <div class="ctx-separator"></div>
+  <div class="ctx-item" onclick="setTool('angle')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 16H3V8"/><path d="M6 16l6-12"/></svg>Angle</div>
+  <div class="ctx-item" onclick="setTool('cobb')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="4"/><line x1="3" y1="20" x2="21" y2="18"/></svg>Cobb Angle</div>
+  <div class="ctx-item" onclick="setTool('zoom')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>Zoom-in</div>
+  <div class="ctx-item" onclick="showCalibration()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.4 2.4 0 0 1 0-3.4l2.6-2.6a2.4 2.4 0 0 1 3.4 0z"/></svg>Calibration</div>
+  <div class="ctx-separator"></div>
+  <div class="ctx-item" onclick="openTagBrowser()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>DICOM Tag Browser</div>
+  <div class="ctx-item" onclick="setTool('magnify')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Magnify Probe</div>
+  <div class="ctx-item" onclick="toggleWLRegion()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="12" cy="12" r="4"/></svg>Window Level Region</div>
+</div>
+
+<!-- ═════════════ DICOM TAG BROWSER ═════════════ -->
+<div class="tag-browser-modal" id="tag-browser-modal">
+  <div class="tag-browser" id="tag-browser" style="position:fixed;top:80px;left:calc(50% - 350px);">
+    <div class="tag-browser-header" id="tag-browser-header">
+      <h3>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+        DICOM Tag Browser
+      </h3>
+      <button class="tag-close-btn" onclick="closeTagBrowser()" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="tag-search">
+      <input type="text" id="tag-search-input" placeholder="Search tag or name..." oninput="filterTags()"/>
+    </div>
+    <div class="tag-table-wrap">
+      <table class="tag-table">
+        <thead><tr><th>Tag</th><th>Name</th><th>VR</th><th>Value</th></tr></thead>
+        <tbody id="tag-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════════ TOAST ═════════════ -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   ANDROMEDA DICOM VIEWER — JavaScript Engine
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// ── Configuration ──
+const DICOMWEB_ROOT_URL = '';  // Set for DICOMweb integration
+
+// ── State ──
+const state = {
+  activeTool: 'wl',
+  activeViewportIndex: 0,
+  layout: { cols: 1, rows: 1 },
+  expandedViewport: -1,
+  previousLayout: null,
+  showOverlay: true,
+  showReferenceLines: false,
+  sliceSync: false,
+  cineActive: false,
+  cineInterval: null,
+  cineFPS: 10,
+  inverted: false,
+  sidebarCollapsed: false,
+  measurements: [],
+  currentMeasurement: null,
+  calibrationFactor: 1, // mm per pixel
+};
+
+// ── Viewport State ──
+const viewports = [];
+
+class ViewportState {
+  constructor(index) {
+    this.index = index;
+    this.seriesIndex = index;
+    this.windowWidth = 400;
+    this.windowLevel = 40;
+    this.zoom = 1;
+    this.panX = 0;
+    this.panY = 0;
+    this.rotation = 0;
+    this.flipH = false;
+    this.inverted = false;
+    this.currentSlice = 0;
+    this.totalSlices = 0;
+    this.imageData = null;
+    this.pixelData = null;
+    this.measurements = [];
+    this.seriesInfo = {};
+    this.orientationLabels = { top: 'H', bottom: 'F', left: 'R', right: 'L' };
+  }
+}
+
+// ── Demo Series Data ──
+const demoSeries = [
+  {
+    name: 'SCOUTS',
+    modality: 'CT',
+    slices: 2,
+    description: 'Scanogram AP/LAT',
+    seriesNum: 1,
+    plane: 'axial',
+    orientation: { top: 'H', bottom: 'F', left: 'R', right: 'L' },
+    thumbGradient: [30, 60],
+    ww: 800, wl: 250,
+    patient: 'Rossi^Mario',
+    studyDate: '20260220',
+    patientId: '302028',
+    accession: '302028-003911',
+    institution: 'Ospedale Andromeda',
+  },
+  {
+    name: 'CHEST 8 q 5 AXIAL MIPs',
+    modality: 'CT',
+    slices: 51,
+    description: 'Axial MIP 8mm',
+    seriesNum: 603,
+    plane: 'axial',
+    orientation: { top: 'A', bottom: 'P', left: 'R', right: 'L' },
+    thumbGradient: [40, 90],
+    ww: 1500, wl: -500,
+    patient: 'Rossi^Mario',
+    studyDate: '20260220',
+    patientId: '302028',
+    accession: '302028-003911',
+    institution: 'Ospedale Andromeda',
+  },
+  {
+    name: 'CHEST 2 q 2 CORONAL',
+    modality: 'CT',
+    slices: 153,
+    description: 'Coronal 2mm',
+    seriesNum: 605,
+    plane: 'coronal',
+    orientation: { top: 'H', bottom: 'F', left: 'R', right: 'L' },
+    thumbGradient: [50, 120],
+    ww: 400, wl: 40,
+    patient: 'Rossi^Mario',
+    studyDate: '20260220',
+    patientId: '302028',
+    accession: '302028-003911',
+    institution: 'Ospedale Andromeda',
+  },
+  {
+    name: 'CHEST 2 q 2 CORONAL',
+    modality: 'CT',
+    slices: 148,
+    description: 'Coronal 2mm Bone',
+    seriesNum: 601,
+    plane: 'coronal',
+    orientation: { top: 'H', bottom: 'F', left: 'R', right: 'L' },
+    thumbGradient: [60, 140],
+    ww: 2000, wl: 300,
+    patient: 'Rossi^Mario',
+    studyDate: '20260220',
+    patientId: '302028',
+    accession: '302028-003911',
+    institution: 'Ospedale Andromeda',
+  },
+  {
+    name: 'SS30 C/A STD 5 mm',
+    modality: 'CT',
+    slices: 108,
+    description: 'Axial Standard 5mm',
+    seriesNum: 3,
+    plane: 'axial',
+    orientation: { top: 'A', bottom: 'P', left: 'R', right: 'L' },
+    thumbGradient: [35, 85],
+    ww: 400, wl: 40,
+    patient: 'Rossi^Mario',
+    studyDate: '20260220',
+    patientId: '302028',
+    accession: '302028-003911',
+    institution: 'Ospedale Andromeda',
+  },
+  {
+    name: 'PEDS 2 q 2 SAGITTAL',
+    modality: 'CT',
+    slices: 201,
+    description: 'Sagittal 2mm',
+    seriesNum: 606,
+    plane: 'sagittal',
+    orientation: { top: 'H', bottom: 'F', left: 'A', right: 'P' },
+    thumbGradient: [45, 100],
+    ww: 400, wl: 40,
+    patient: 'Rossi^Mario',
+    studyDate: '20260220',
+    patientId: '302028',
+    accession: '302028-003911',
+    institution: 'Ospedale Andromeda',
+  },
+];
+
+// ── DICOM Tag Database (demo) ──
+const dicomTags = [
+  { tag: '(0008,0005)', name: 'Specific Character Set', vr: 'CS', value: 'ISO_IR 100' },
+  { tag: '(0008,0008)', name: 'Image Type', vr: 'CS', value: 'ORIGINAL\\PRIMARY\\AXIAL' },
+  { tag: '(0008,0016)', name: 'SOP Class UID', vr: 'UI', value: '1.2.840.10008.5.1.4.1.1.2' },
+  { tag: '(0008,0018)', name: 'SOP Instance UID', vr: 'UI', value: '1.2.826.0.1.3680043.8.1055.1.2026.1' },
+  { tag: '(0008,0020)', name: 'Study Date', vr: 'DA', value: '20260220' },
+  { tag: '(0008,0030)', name: 'Study Time', vr: 'TM', value: '143022' },
+  { tag: '(0008,0050)', name: 'Accession Number', vr: 'SH', value: '302028-003911' },
+  { tag: '(0008,0060)', name: 'Modality', vr: 'CS', value: 'CT' },
+  { tag: '(0008,0070)', name: 'Manufacturer', vr: 'LO', value: 'SIEMENS' },
+  { tag: '(0008,0080)', name: 'Institution Name', vr: 'LO', value: 'Ospedale Andromeda' },
+  { tag: '(0008,1030)', name: 'Study Description', vr: 'LO', value: 'CT CHEST W CONTRAST' },
+  { tag: '(0008,103E)', name: 'Series Description', vr: 'LO', value: 'SCOUTS' },
+  { tag: '(0010,0010)', name: 'Patient Name', vr: 'PN', value: 'Rossi^Mario' },
+  { tag: '(0010,0020)', name: 'Patient ID', vr: 'LO', value: '302028' },
+  { tag: '(0010,0030)', name: 'Patient Birth Date', vr: 'DA', value: '19780315' },
+  { tag: '(0010,0040)', name: 'Patient Sex', vr: 'CS', value: 'M' },
+  { tag: '(0010,1010)', name: 'Patient Age', vr: 'AS', value: '048Y' },
+  { tag: '(0018,0050)', name: 'Slice Thickness', vr: 'DS', value: '5.0' },
+  { tag: '(0018,0060)', name: 'KVP', vr: 'DS', value: '120' },
+  { tag: '(0018,0088)', name: 'Spacing Between Slices', vr: 'DS', value: '5.0' },
+  { tag: '(0018,1100)', name: 'Reconstruction Diameter', vr: 'DS', value: '360.0' },
+  { tag: '(0018,1150)', name: 'Exposure Time', vr: 'IS', value: '500' },
+  { tag: '(0018,1151)', name: 'X-Ray Tube Current', vr: 'IS', value: '200' },
+  { tag: '(0020,000D)', name: 'Study Instance UID', vr: 'UI', value: '1.2.826.0.1.3680043.8.1055.1.20260220.1' },
+  { tag: '(0020,000E)', name: 'Series Instance UID', vr: 'UI', value: '1.2.826.0.1.3680043.8.1055.1.20260220.1.1' },
+  { tag: '(0020,0011)', name: 'Series Number', vr: 'IS', value: '1' },
+  { tag: '(0020,0013)', name: 'Instance Number', vr: 'IS', value: '1' },
+  { tag: '(0020,0032)', name: 'Image Position (Patient)', vr: 'DS', value: '-180.0\\-180.0\\-400.0' },
+  { tag: '(0020,0037)', name: 'Image Orientation (Patient)', vr: 'DS', value: '1\\0\\0\\0\\1\\0' },
+  { tag: '(0020,0052)', name: 'Frame of Reference UID', vr: 'UI', value: '1.2.826.0.1.3680043.8.1055.1.20260220.1.0' },
+  { tag: '(0020,1041)', name: 'Slice Location', vr: 'DS', value: '-400.0' },
+  { tag: '(0028,0002)', name: 'Samples per Pixel', vr: 'US', value: '1' },
+  { tag: '(0028,0004)', name: 'Photometric Interpretation', vr: 'CS', value: 'MONOCHROME2' },
+  { tag: '(0028,0010)', name: 'Rows', vr: 'US', value: '512' },
+  { tag: '(0028,0011)', name: 'Columns', vr: 'US', value: '512' },
+  { tag: '(0028,0030)', name: 'Pixel Spacing', vr: 'DS', value: '0.703\\0.703' },
+  { tag: '(0028,0100)', name: 'Bits Allocated', vr: 'US', value: '16' },
+  { tag: '(0028,0101)', name: 'Bits Stored', vr: 'US', value: '12' },
+  { tag: '(0028,0102)', name: 'High Bit', vr: 'US', value: '11' },
+  { tag: '(0028,0103)', name: 'Pixel Representation', vr: 'US', value: '1' },
+  { tag: '(0028,1050)', name: 'Window Center', vr: 'DS', value: '40' },
+  { tag: '(0028,1051)', name: 'Window Width', vr: 'DS', value: '400' },
+  { tag: '(0028,1052)', name: 'Rescale Intercept', vr: 'DS', value: '-1024' },
+  { tag: '(0028,1053)', name: 'Rescale Slope', vr: 'DS', value: '1' },
+  { tag: '(0040,0244)', name: 'Performed Procedure Step Start Date', vr: 'DA', value: '20260220' },
+  { tag: '(0040,0245)', name: 'Performed Procedure Step Start Time', vr: 'TM', value: '143022' },
+];
+
+// ═══════════════════════════════════════════════════════════════════
+// SYNTHETIC DICOM IMAGE GENERATION
+// ═══════════════════════════════════════════════════════════════════
+
+function generateSyntheticSlice(width, height, sliceIndex, totalSlices, seriesInfo) {
+  const data = new Float32Array(width * height);
+  const cx = width / 2, cy = height / 2;
+  const maxR = Math.min(cx, cy) * 0.85;
+  const sliceRatio = sliceIndex / Math.max(1, totalSlices - 1);
+
+  // Seeded PRNG
+  let seed = sliceIndex * 73856093 + (seriesInfo.seriesNum || 0) * 19349663;
+  const rand = () => { seed = (seed * 16807 + 0) % 2147483647; return (seed & 0x7FFFFFFF) / 2147483647; };
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const dx = x - cx, dy = y - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const idx = y * width + x;
+
+      if (dist > maxR) {
+        data[idx] = -1024; // air
+        continue;
+      }
+
+      // Body oval
+      const bodyR = maxR * (0.7 + 0.15 * Math.sin(sliceRatio * Math.PI));
+      const bodyX = dx / (bodyR * 1.1), bodyY = dy / (bodyR * 0.9);
+      const inBody = (bodyX * bodyX + bodyY * bodyY) < 1;
+
+      if (!inBody) {
+        data[idx] = -1024 + rand() * 50;
+        continue;
+      }
+
+      // Base tissue
+      let value = 30 + rand() * 20;
+
+      // Spine region
+      const spineX = dx / 15, spineY = (dy + cy * 0.3) / 20;
+      if (spineX * spineX + spineY * spineY < 1) {
+        value = 300 + rand() * 200; // bone
+      }
+
+      // Lung regions (for chest CT)
+      const lungLX = (dx + cx * 0.25) / (maxR * 0.25);
+      const lungLY = (dy - cy * 0.05) / (maxR * 0.35);
+      const lungRX = (dx - cx * 0.25) / (maxR * 0.25);
+      const lungRY = (dy - cy * 0.05) / (maxR * 0.35);
+
+      if (lungLX * lungLX + lungLY * lungLY < 1) {
+        value = -800 + rand() * 100 + Math.sin(sliceRatio * Math.PI * 3) * 50;
+      }
+      if (lungRX * lungRX + lungRY * lungRY < 1) {
+        value = -800 + rand() * 100 + Math.cos(sliceRatio * Math.PI * 2.5) * 50;
+      }
+
+      // Rib-like structures
+      const ribAngle = Math.atan2(dy, dx);
+      const ribR = dist / maxR;
+      if (ribR > 0.65 && ribR < 0.72 && Math.abs(Math.sin(ribAngle * 6 + sliceRatio * 2)) > 0.7) {
+        value = 400 + rand() * 200;
+      }
+
+      // Add noise
+      value += (rand() - 0.5) * 30;
+
+      data[idx] = value;
+    }
+  }
+  return data;
+}
+
+function applyWindowLevel(pixelData, width, height, ww, wl, inverted) {
+  const imageData = new ImageData(width, height);
+  const d = imageData.data;
+  const lower = wl - ww / 2;
+  const upper = wl + ww / 2;
+
+  for (let i = 0; i < pixelData.length; i++) {
+    let val = pixelData[i];
+    let mapped;
+    if (val <= lower) mapped = 0;
+    else if (val >= upper) mapped = 255;
+    else mapped = ((val - lower) / ww) * 255;
+
+    if (inverted) mapped = 255 - mapped;
+
+    const j = i * 4;
+    d[j] = d[j + 1] = d[j + 2] = mapped | 0;
+    d[j + 3] = 255;
+  }
+  return imageData;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// VIEWPORT MANAGEMENT
+// ═══════════════════════════════════════════════════════════════════
+
+function createViewport(index) {
+  const cell = document.createElement('div');
+  cell.className = 'viewport-cell' + (index === 0 ? ' active' : '');
+  cell.id = `viewport-${index}`;
+  cell.setAttribute('data-index', index);
+
+  // Main DICOM canvas
+  const canvas = document.createElement('canvas');
+  canvas.className = 'dicom-canvas';
+  canvas.width = 512;
+  canvas.height = 512;
+
+  // Overlay canvas (reference lines)
+  const overlayCanvas = document.createElement('canvas');
+  overlayCanvas.className = 'overlay-canvas';
+
+  // Measurement canvas
+  const measCanvas = document.createElement('canvas');
+  measCanvas.className = 'measurement-canvas';
+
+  // Info overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'viewport-overlay';
+  overlay.innerHTML = `
+    <div class="overlay-tl" data-overlay="tl"></div>
+    <div class="overlay-tr" data-overlay="tr"></div>
+    <div class="overlay-bl" data-overlay="bl"></div>
+    <div class="overlay-br" data-overlay="br"></div>
+    <div class="overlay-orientation orient-top" data-orient="top"></div>
+    <div class="overlay-orientation orient-bottom" data-orient="bottom"></div>
+    <div class="overlay-orientation orient-left" data-orient="left"></div>
+    <div class="overlay-orientation orient-right" data-orient="right"></div>
+  `;
+
+  // Cine controls
+  const cine = document.createElement('div');
+  cine.className = 'cine-controls hidden';
+  cine.innerHTML = `
+    <button class="cine-btn" onclick="cinePrev(${index})" aria-label="Previous frame"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg></button>
+    <button class="cine-btn cine-play-btn" onclick="cinePlayPause(${index})" aria-label="Play/Pause"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21"/></svg></button>
+    <button class="cine-btn" onclick="cineNext(${index})" aria-label="Next frame"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
+    <button class="cine-btn" onclick="cineStop(${index})" aria-label="Stop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>
+    <input type="range" class="cine-slider" min="1" max="30" value="10" oninput="setCineFPS(${index}, this.value)"/>
+    <span class="cine-fps">10 fps</span>
+  `;
+
+  // Magnify lens
+  const magnify = document.createElement('div');
+  magnify.className = 'magnify-lens';
+  const magnifyCanvas = document.createElement('canvas');
+  magnifyCanvas.width = 160;
+  magnifyCanvas.height = 160;
+  magnify.appendChild(magnifyCanvas);
+
+  // Slice progress
+  const progress = document.createElement('div');
+  progress.className = 'slice-progress';
+  progress.innerHTML = '<div class="slice-progress-fill"></div>';
+
+  cell.appendChild(canvas);
+  cell.appendChild(overlayCanvas);
+  cell.appendChild(measCanvas);
+  cell.appendChild(overlay);
+  cell.appendChild(cine);
+  cell.appendChild(magnify);
+  cell.appendChild(progress);
+
+  // Events
+  cell.addEventListener('mousedown', (e) => onViewportMouseDown(e, index));
+  cell.addEventListener('mousemove', (e) => onViewportMouseMove(e, index));
+  cell.addEventListener('mouseup', (e) => onViewportMouseUp(e, index));
+  cell.addEventListener('wheel', (e) => onViewportWheel(e, index), { passive: false });
+  cell.addEventListener('dblclick', (e) => onViewportDblClick(e, index));
+  cell.addEventListener('contextmenu', (e) => onViewportContextMenu(e, index));
+  cell.addEventListener('click', () => setActiveViewport(index));
+
+  // Drag & drop to load series
+  cell.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
+  cell.addEventListener('drop', (e) => onViewportDrop(e, index));
+
+  return cell;
+}
+
+function initViewports() {
+  const grid = document.getElementById('viewport-grid');
+  grid.innerHTML = '';
+  viewports.length = 0;
+
+  const totalCells = state.layout.cols * state.layout.rows;
+  grid.style.gridTemplateColumns = `repeat(${state.layout.cols}, 1fr)`;
+  grid.style.gridTemplateRows = `repeat(${state.layout.rows}, 1fr)`;
+
+  for (let i = 0; i < totalCells; i++) {
+    const vp = new ViewportState(i);
+    const seriesIdx = i % demoSeries.length;
+    vp.seriesIndex = seriesIdx;
+    vp.seriesInfo = demoSeries[seriesIdx];
+    vp.totalSlices = demoSeries[seriesIdx].slices;
+    vp.windowWidth = demoSeries[seriesIdx].ww;
+    vp.windowLevel = demoSeries[seriesIdx].wl;
+    vp.orientationLabels = demoSeries[seriesIdx].orientation;
+    vp.currentSlice = 0;
+    viewports.push(vp);
+
+    const cell = createViewport(i);
+    grid.appendChild(cell);
+  }
+
+  // Render all
+  requestAnimationFrame(() => {
+    viewports.forEach((vp, i) => {
+      resizeViewportCanvases(i);
+      renderViewport(i);
+      updateViewportOverlay(i);
+    });
+  });
+}
+
+function resizeViewportCanvases(index) {
+  const cell = document.getElementById(`viewport-${index}`);
+  if (!cell) return;
+  const canvas = cell.querySelector('.dicom-canvas');
+  const overlayCanvas = cell.querySelector('.overlay-canvas');
+  const measCanvas = cell.querySelector('.measurement-canvas');
+  const rect = cell.getBoundingClientRect();
+  const w = Math.floor(rect.width);
+  const h = Math.floor(rect.height);
+  if (w <= 0 || h <= 0) return;
+  canvas.width = w;
+  canvas.height = h;
+  overlayCanvas.width = w;
+  overlayCanvas.height = h;
+  measCanvas.width = w;
+  measCanvas.height = h;
+}
+
+/* ── CACHE FOR REAL DICOM LOADS ── */
+const imageCache = new Map(); // key: instanceId, value: float32 pixelData object
+const pendingFetch = new Set(); // To prevent duplicate fetches
+
+async function renderViewport(index) {
+  const vp = viewports[index];
+  if (!vp) return;
+  const cell = document.getElementById(`viewport-${index}`);
+  if (!cell) return;
+  const canvas = cell.querySelector('.dicom-canvas');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  
+  if (!vp.seriesInfo) return;
+
+  let pixelData;
+  let useSynthetic = true;
+
+  // Real database DICOM images logic
+  if (vp.seriesInfo.isReal && vp.seriesInfo.instances && vp.seriesInfo.instances.length > 0) {
+    const instance = vp.seriesInfo.instances[Math.min(vp.currentSlice, vp.seriesInfo.instances.length - 1)];
+    if (instance) {
+      if (imageCache.has(instance.id)) {
+        const cached = imageCache.get(instance.id);
+        if (cached !== 'error') {
+           useSynthetic = false;
+           pixelData = cached.data;
+           if (cached.ww !== undefined && cached.wl !== undefined && !vp.initializedWl) {
+               vp.windowWidth = cached.ww;
+               vp.windowLevel = cached.wl;
+               vp.initializedWl = true;
+           }
+        } else {
+           useSynthetic = true;
+           pixelData = generateSyntheticSlice(w, h, vp.currentSlice, vp.totalSlices, vp.seriesInfo); // Fallback
+        }
+      } else {
+        // Render loading state while fetching, but don't re-render synthetic if waiting
+        if (!pendingFetch.has(instance.id)) {
+          pendingFetch.add(instance.id);
+          fetchRealDicomInstance(instance.id, index);
+        }
+        // Let it draw a black screen or previous state while loading string
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '12px var(--font-mono)';
+        ctx.textAlign = 'center';
+        ctx.fillText('Caricamento Immagine DICOM...', w/2, h/2);
+        return; // wait for fetch to trigger re-render
+      }
+    }
+  }
+
+  if (useSynthetic && !pixelData) {
+    pixelData = generateSyntheticSlice(w, h, vp.currentSlice, vp.totalSlices, vp.seriesInfo);
+  }
+
+  // Draw pixel data with WL
+  let imgData;
+  if (!useSynthetic && pixelData.length !== w * h) {
+      // If the true dicom is not exactly 512x512, adapt the canvas dimensions conceptually 
+      // but pixelData array length provides actual sizes. Assuming the cached object has columns/rows
+      const cached = imageCache.get(vp.seriesInfo.instances[Math.min(vp.currentSlice, vp.seriesInfo.instances.length - 1)].id);
+      imgData = applyWindowLevel(pixelData, cached.cols || w, cached.rows || h, vp.windowWidth, vp.windowLevel, vp.invert);
+  } else {
+      imgData = applyWindowLevel(pixelData, w, h, vp.windowWidth, vp.windowLevel, vp.invert);
+  }
+
+  // Handle Offscreen Canvas for transformations
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = imgData.width;
+  offCanvas.height = imgData.height;
+  offCanvas.getContext('2d').putImageData(imgData, 0, 0);
+
+  // Clear and draw with transformations
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.save();
+  ctx.translate(w / 2 + vp.panX, h / 2 + vp.panY);
+  ctx.rotate(vp.rotation * Math.PI / 180);
+  ctx.scale(vp.zoom * (vp.flipH ? -1 : 1), vp.zoom);
+
+  const scale = Math.min(w / imgData.width, h / imgData.height);
+  const drawW = imgData.width * scale;
+  const drawH = imgData.height * scale;
+  ctx.drawImage(offCanvas, -drawW / 2, -drawH / 2, drawW, drawH);
+  ctx.restore();
+
+  // Update overlays
+  updateSliceProgress(index);
+  renderMeasurements(index);
+  if (state.showReferenceLines) renderReferenceLines(index);
+}
+
+function updateViewportOverlay(index) {
+  const vp = viewports[index];
+  if (!vp) return;
+  const cell = document.getElementById(`viewport-${index}`);
+  if (!cell) return;
+  const overlay = cell.querySelector('.viewport-overlay');
+  if (!overlay) return;
+
+  overlay.style.display = state.showOverlay ? 'block' : 'none';
+
+  const tl = overlay.querySelector('[data-overlay="tl"]');
+  const tr = overlay.querySelector('[data-overlay="tr"]');
+  const bl = overlay.querySelector('[data-overlay="bl"]');
+  const br = overlay.querySelector('[data-overlay="br"]');
+
+  const si = vp.seriesInfo;
+  const patientName = (si.patient || 'Unknown').replace('^', ', ');
+  const studyDate = formatDate(si.studyDate || '');
+
+  tl.innerHTML = `${patientName}<br>${si.patientId || ''}<br>${studyDate}`;
+  tr.innerHTML = `${si.accession || ''}<br>${si.name || ''}<br>S:${si.seriesNum || ''}`;
+  bl.innerHTML = `W: ${vp.windowWidth}  L: ${vp.windowLevel}`;
+  br.innerHTML = `I: ${vp.currentSlice + 1} (${vp.currentSlice + 1}/${vp.totalSlices})`;
+
+  // Orientation labels
+  overlay.querySelector('[data-orient="top"]').textContent = vp.orientationLabels.top;
+  overlay.querySelector('[data-orient="bottom"]').textContent = vp.orientationLabels.bottom;
+  overlay.querySelector('[data-orient="left"]').textContent = vp.orientationLabels.left;
+  overlay.querySelector('[data-orient="right"]').textContent = vp.orientationLabels.right;
+}
+
+function updateSliceProgress(index) {
+  const vp = viewports[index];
+  const cell = document.getElementById(`viewport-${index}`);
+  if (!cell || !vp) return;
+  const fill = cell.querySelector('.slice-progress-fill');
+  const pct = vp.totalSlices > 1 ? (vp.currentSlice / (vp.totalSlices - 1)) * 100 : 100;
+  fill.style.width = pct + '%';
+}
+
+function formatDate(dateStr) {
+  if (!dateStr || dateStr.length !== 8) return dateStr;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[parseInt(dateStr.substring(4,6)) - 1]} ${parseInt(dateStr.substring(6,8))}, ${dateStr.substring(0,4)}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MOUSE & INPUT HANDLING
+// ═══════════════════════════════════════════════════════════════════
+
+let mouseDown = false;
+let lastMouseX = 0, lastMouseY = 0;
+let startMouseX = 0, startMouseY = 0;
+
+function setActiveViewport(index) {
+  state.activeViewportIndex = index;
+  document.querySelectorAll('.viewport-cell').forEach((c, i) => {
+    c.classList.toggle('active', i === index);
+  });
+  updateStatusBar();
+}
+
+function onViewportMouseDown(e, index) {
+  if (e.button === 2) return; // right click handled by context menu
+  e.preventDefault();
+  mouseDown = true;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+  startMouseX = e.clientX;
+  startMouseY = e.clientY;
+  setActiveViewport(index);
+
+  const cell = document.getElementById(`viewport-${index}`);
+  if (state.activeTool === 'pan') cell.classList.add('cursor-pan-active');
+
+  // Start measurement
+  if (['length', 'angle', 'cobb', 'ellipse', 'rect'].includes(state.activeTool)) {
+    const rect = cell.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    startMeasurement(index, x, y);
+  }
+}
+
+function onViewportMouseMove(e, index) {
+  const cell = document.getElementById(`viewport-${index}`);
+  const rect = cell.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const vp = viewports[index];
+
+  // Update status bar position
+  if (index === state.activeViewportIndex) {
+    document.getElementById('status-pos').textContent = `${Math.round(x)}, ${Math.round(y)}`;
+
+    // Calculate HU from pixel data
+    if (vp.pixelData) {
+      const canvas = cell.querySelector('.dicom-canvas');
+      const scale = Math.min(canvas.width / 512, canvas.height / 512) * vp.zoom;
+      const imgX = Math.floor((x - canvas.width / 2 - vp.panX) / scale + 256);
+      const imgY = Math.floor((y - canvas.height / 2 - vp.panY) / scale + 256);
+      if (imgX >= 0 && imgX < 512 && imgY >= 0 && imgY < 512) {
+        const hu = Math.round(vp.pixelData[imgY * 512 + imgX]);
+        document.getElementById('status-hu').textContent = hu;
+      }
+    }
+  }
+
+  // Probe tool - show HU in real time at cursor
+  if (state.activeTool === 'probe' && vp.pixelData) {
+    renderProbe(index, x, y);
+  }
+
+  // Magnify probe
+  if (state.activeTool === 'magnify') {
+    renderMagnify(index, x, y);
+  }
+
+  if (!mouseDown) return;
+
+  const dx = e.clientX - lastMouseX;
+  const dy = e.clientY - lastMouseY;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+
+  switch (state.activeTool) {
+    case 'wl':
+      vp.windowWidth = Math.max(1, vp.windowWidth + dx * 2);
+      vp.windowLevel = vp.windowLevel + dy * 2;
+      renderViewport(index);
+      updateViewportOverlay(index);
+      updateStatusBar();
+      break;
+    case 'zoom':
+      vp.zoom = Math.max(0.1, Math.min(10, vp.zoom + dy * -0.005));
+      renderViewport(index);
+      updateStatusBar();
+      break;
+    case 'pan':
+      vp.panX += dx;
+      vp.panY += dy;
+      renderViewport(index);
+      break;
+    case 'length':
+    case 'angle':
+    case 'cobb':
+    case 'ellipse':
+    case 'rect':
+      updateMeasurement(index, x, y);
+      break;
+  }
+}
+
+function onViewportMouseUp(e, index) {
+  mouseDown = false;
+  const cell = document.getElementById(`viewport-${index}`);
+  cell.classList.remove('cursor-pan-active');
+
+  if (['length', 'angle', 'cobb', 'ellipse', 'rect'].includes(state.activeTool)) {
+    finishMeasurement(index);
+  }
+}
+
+function onViewportWheel(e, index) {
+  e.preventDefault();
+  const vp = viewports[index];
+  const delta = e.deltaY > 0 ? 1 : -1;
+
+  // Stack scroll
+  vp.currentSlice = Math.max(0, Math.min(vp.totalSlices - 1, vp.currentSlice + delta));
+  renderViewport(index);
+  updateViewportOverlay(index);
+
+  // Sync if enabled
+  if (state.sliceSync) {
+    syncSlices(index);
+  }
+
+  updateStatusBar();
+}
+
+function onViewportDblClick(e, index) {
+  e.preventDefault();
+  const grid = document.getElementById('viewport-grid');
+  const totalCells = state.layout.cols * state.layout.rows;
+
+  if (totalCells <= 1) return;
+
+  if (state.expandedViewport === index) {
+    // Restore previous layout
+    state.expandedViewport = -1;
+    document.querySelectorAll('.viewport-cell').forEach(c => {
+      c.style.display = '';
+      c.classList.remove('expanded');
+    });
+    grid.style.gridTemplateColumns = `repeat(${state.layout.cols}, 1fr)`;
+    grid.style.gridTemplateRows = `repeat(${state.layout.rows}, 1fr)`;
+  } else {
+    // Expand this viewport
+    state.expandedViewport = index;
+    document.querySelectorAll('.viewport-cell').forEach((c, i) => {
+      if (i !== index) {
+        c.style.display = 'none';
+      } else {
+        c.classList.add('expanded');
+      }
+    });
+    grid.style.gridTemplateColumns = '1fr';
+    grid.style.gridTemplateRows = '1fr';
+  }
+
+  setTimeout(() => {
+    viewports.forEach((vp, i) => {
+      const cell = document.getElementById(`viewport-${i}`);
+      if (cell && cell.style.display !== 'none') {
+        resizeViewportCanvases(i);
+        renderViewport(i);
+      }
+    });
+  }, 50);
+}
+
+function onViewportContextMenu(e, index) {
+  e.preventDefault();
+  setActiveViewport(index);
+  const menu = document.getElementById('context-menu');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.classList.add('open');
+
+  // Update active states
+  document.getElementById('ctx-sync').classList.toggle('active', state.sliceSync);
+  document.getElementById('ctx-reflines').classList.toggle('active', state.showReferenceLines);
+  document.getElementById('ctx-overlay').classList.toggle('active', state.showOverlay);
+}
+
+function onViewportDrop(e, index) {
+  e.preventDefault();
+  e.stopPropagation();
+  const files = e.dataTransfer.files;
+  if (files.length > 0) {
+    loadDICOMFile(files[0], index);
+  }
+
+  // Drag series from sidebar
+  const seriesIdx = e.dataTransfer.getData('text/series-index');
+  if (seriesIdx !== '') {
+    const si = parseInt(seriesIdx);
+    const vp = viewports[index];
+    vp.seriesIndex = si;
+    vp.seriesInfo = demoSeries[si];
+    vp.totalSlices = demoSeries[si].slices;
+    vp.windowWidth = demoSeries[si].ww;
+    vp.windowLevel = demoSeries[si].wl;
+    vp.orientationLabels = demoSeries[si].orientation;
+    vp.currentSlice = 0;
+    vp.zoom = 1;
+    vp.panX = 0;
+    vp.panY = 0;
+    vp.rotation = 0;
+    vp.flipH = false;
+    renderViewport(index);
+    updateViewportOverlay(index);
+    updateSidebarActive();
+    showToast(`Loaded: ${demoSeries[si].name}`);
+  }
+}
+
+function parseDicomBuffer(arrayBuffer) {
+    try {
+        const dataSet = dicomParser.parseDicom(new Uint8Array(arrayBuffer));
+        const rows = dataSet.uint16('x00280010');
+        const cols = dataSet.uint16('x00280011');
+        const bitsAllocated = dataSet.uint16('x00280100');
+        const pixelRepresentation = dataSet.uint16('x00280103');
+        const rescaleSlope = dataSet.float('x00281053') || 1;
+        const rescaleIntercept = dataSet.float('x00281052') || 0;
+        const ww = dataSet.float('x00281051') || 400;
+        const wl = dataSet.float('x00281050') || 40;
+
+          const pixelDataElement = dataSet.elements.x7fe00010;
+          if (pixelDataElement) {
+            const pixelData = new Float32Array(rows * cols);
+            if (bitsAllocated === 16) {
+              let typedArray;
+              if (pixelRepresentation === 1) {
+                typedArray = new Int16Array(arrayBuffer, pixelDataElement.dataOffset, pixelDataElement.length / 2);
+              } else {
+                typedArray = new Uint16Array(arrayBuffer, pixelDataElement.dataOffset, pixelDataElement.length / 2);
+              }
+              for (let i = 0; i < Math.min(typedArray.length, pixelData.length); i++) {
+                pixelData[i] = typedArray[i] * rescaleSlope + rescaleIntercept;
+              }
+            } else {
+              const typedArray = new Uint8Array(arrayBuffer, pixelDataElement.dataOffset, pixelDataElement.length);
+              for (let i = 0; i < Math.min(typedArray.length, pixelData.length); i++) {
+                pixelData[i] = typedArray[i] * rescaleSlope + rescaleIntercept;
+              }
+            }
+
+            return { data: pixelData, cols, rows, ww, wl, dataset: dataSet };
+          }
+        } catch(e) {
+            console.error('Error parsing dicom buffer', e);
+        }
+    return null;
+}
+
+// Global fetcher dispatcher
+async function fetchRealDicomInstance(instanceId, vpIndex) {
+    try {
+        const response = await fetch(`/api/images/${instanceId}`);
+        if (!response.ok) throw new Error('Network fail');
+        const arrayBuffer = await response.arrayBuffer();
+        const parsed = parseDicomBuffer(arrayBuffer);
+        
+        if (parsed) {
+           imageCache.set(instanceId, parsed);
+        } else {
+           imageCache.set(instanceId, 'error');
+           console.error('Failed to parse specific instance', instanceId);
+        }
+    } catch (e) {
+        console.error('Failed fetching DICOM for', instanceId, e);
+        imageCache.set(instanceId, 'error');
+    }
+    pendingFetch.delete(instanceId);
+    
+    // Check if this viewport is still waiting for this frame
+    const vp = viewports[vpIndex];
+    if (vp && vp.seriesInfo.instances) {
+        const currentInstance = vp.seriesInfo.instances[Math.min(vp.currentSlice, vp.seriesInfo.instances.length - 1)];
+        if (currentInstance && currentInstance.id === instanceId) {
+            requestAnimationFrame(() => renderViewport(vpIndex));
+        }
+    }
+}
+
+function loadDICOMFile(file, vpIndex) {
+  if (!file) return;
+
+  // Try to use dicomParser if available
+  if (typeof dicomParser !== 'undefined') {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const parsed = parseDicomBuffer(e.target.result);
+      if (parsed) {
+          const vp = viewports[vpIndex];
+          vp.pixelData = parsed.data;
+          vp.windowWidth = parsed.ww;
+          vp.windowLevel = parsed.wl;
+          vp.totalSlices = 1;
+          vp.currentSlice = 0;
+
+          // Update series info from DICOM tags
+          vp.seriesInfo = {
+            ...vp.seriesInfo,
+            patient: parsed.dataset.string('x00100010') || vp.seriesInfo.patient,
+            patientId: parsed.dataset.string('x00100020') || vp.seriesInfo.patientId,
+            modality: parsed.dataset.string('x00080060') || 'CT',
+            name: parsed.dataset.string('x0008103e') || 'Loaded Series',
+            studyDate: parsed.dataset.string('x00080020') || '',
+            institution: parsed.dataset.string('x00080080') || '',
+          };
+
+          // Render with actual DICOM data
+          renderViewportFromPixelData(vpIndex, parsed.data, parsed.cols, parsed.rows);
+          updateViewportOverlay(vpIndex);
+          showToast('DICOM file loaded successfully');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+  } else {
+    showToast('dicomParser not available — showing synthetic data');
+  }
+}
+
+function renderViewportFromPixelData(index, pixelData, imgWidth, imgHeight) {
+  const vp = viewports[index];
+  const cell = document.getElementById(`viewport-${index}`);
+  if (!cell) return;
+  const canvas = cell.querySelector('.dicom-canvas');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+
+  const imageData = applyWindowLevel(pixelData, imgWidth, imgHeight, vp.windowWidth, vp.windowLevel, vp.inverted);
+
+  const offscreen = document.createElement('canvas');
+  offscreen.width = imgWidth;
+  offscreen.height = imgHeight;
+  offscreen.getContext('2d').putImageData(imageData, 0, 0);
+
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.save();
+  ctx.translate(w / 2 + vp.panX, h / 2 + vp.panY);
+  ctx.rotate(vp.rotation * Math.PI / 180);
+  ctx.scale(vp.zoom * (vp.flipH ? -1 : 1), vp.zoom);
+  const scale = Math.min(w / imgWidth, h / imgHeight);
+  ctx.drawImage(offscreen, -(imgWidth * scale) / 2, -(imgHeight * scale) / 2, imgWidth * scale, imgHeight * scale);
+  ctx.restore();
+
+  updateSliceProgress(index);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// TOOLS
+// ═══════════════════════════════════════════════════════════════════
+
+function setTool(tool) {
+  state.activeTool = tool;
+
+  // Update toolbar active states
+  document.querySelectorAll('.toolbar-btn[id^="tool-"]').forEach(btn => {
+    const toolName = btn.id.replace('tool-', '');
+    btn.classList.toggle('active', toolName === tool);
+  });
+
+  // Update cursor
+  const grid = document.getElementById('viewport-grid');
+  grid.className = '';
+  const cursorMap = {
+    wl: 'cursor-wl', zoom: 'cursor-zoom', pan: 'cursor-pan',
+    length: 'cursor-length', angle: 'cursor-angle', cobb: 'cursor-length',
+    probe: 'cursor-probe', ellipse: 'cursor-roi', rect: 'cursor-roi',
+    magnify: 'cursor-magnify'
+  };
+  if (cursorMap[tool]) grid.classList.add(cursorMap[tool]);
+
+  // Update status
+  const toolNames = {
+    wl: 'Window/Level', zoom: 'Zoom', pan: 'Pan', length: 'Length',
+    angle: 'Angle', cobb: 'Cobb Angle', probe: 'Probe', magnify: 'Magnify',
+    ellipse: 'Ellipse ROI', rect: 'Rectangle ROI', scroll: 'Stack Scroll'
+  };
+  document.getElementById('status-tool').textContent = toolNames[tool] || tool;
+
+  // Hide magnify lens when switching away
+  if (tool !== 'magnify') {
+    document.querySelectorAll('.magnify-lens').forEach(l => l.style.display = 'none');
+  }
+}
+
+function invertImage() {
+  const vp = viewports[state.activeViewportIndex];
+  vp.inverted = !vp.inverted;
+  document.getElementById('tool-invert').classList.toggle('active', vp.inverted);
+  renderViewport(state.activeViewportIndex);
+}
+
+function rotateImage() {
+  const vp = viewports[state.activeViewportIndex];
+  vp.rotation = (vp.rotation + 90) % 360;
+  renderViewport(state.activeViewportIndex);
+}
+
+function flipImage() {
+  const vp = viewports[state.activeViewportIndex];
+  vp.flipH = !vp.flipH;
+  renderViewport(state.activeViewportIndex);
+}
+
+function resetView() {
+  const vp = viewports[state.activeViewportIndex];
+  vp.zoom = 1;
+  vp.panX = 0;
+  vp.panY = 0;
+  vp.rotation = 0;
+  vp.flipH = false;
+  vp.inverted = false;
+  vp.windowWidth = vp.seriesInfo.ww || 400;
+  vp.windowLevel = vp.seriesInfo.wl || 40;
+  renderViewport(state.activeViewportIndex);
+  updateViewportOverlay(state.activeViewportIndex);
+  updateStatusBar();
+}
+
+function toggleOverlay() {
+  state.showOverlay = !state.showOverlay;
+  document.getElementById('tool-overlay').classList.toggle('active', state.showOverlay);
+  viewports.forEach((_, i) => updateViewportOverlay(i));
+}
+
+function toggleReferenceLines() {
+  state.showReferenceLines = !state.showReferenceLines;
+  document.getElementById('tool-reflines').classList.toggle('active', state.showReferenceLines);
+  viewports.forEach((_, i) => {
+    if (state.showReferenceLines) {
+      renderReferenceLines(i);
+    } else {
+      clearReferenceLines(i);
+    }
+  });
+}
+
+function toggleSliceSync() {
+  state.sliceSync = !state.sliceSync;
+  document.getElementById('tool-sync').classList.toggle('active', state.sliceSync);
+  showToast(state.sliceSync ? 'Slice Sync: ON' : 'Slice Sync: OFF');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// REFERENCE LINES
+// ═══════════════════════════════════════════════════════════════════
+
+function renderReferenceLines(index) {
+  const cell = document.getElementById(`viewport-${index}`);
+  if (!cell) return;
+  const overlayCanvas = cell.querySelector('.overlay-canvas');
+  const ctx = overlayCanvas.getContext('2d');
+  const w = overlayCanvas.width, h = overlayCanvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  if (!state.showReferenceLines) return;
+  if (viewports.length <= 1) return;
+
+  const vp = viewports[index];
+  const plane = vp.seriesInfo.plane;
+
+  // Draw reference lines from other viewports
+  viewports.forEach((otherVp, otherIdx) => {
+    if (otherIdx === index) return;
+    const otherPlane = otherVp.seriesInfo.plane;
+    if (otherPlane === plane) return;
+
+    const sliceRatio = otherVp.totalSlices > 1 ? otherVp.currentSlice / (otherVp.totalSlices - 1) : 0.5;
+
+    // Color mapping
+    const colorMap = {
+      axial: 'var(--accent-reference-axial)',
+      coronal: 'var(--accent-reference-coronal)',
+      sagittal: 'var(--accent-reference-sagittal)',
+    };
+    const rawColors = { axial: '#ffff00', coronal: '#00ff00', sagittal: '#ff6666' };
+    const color = rawColors[otherPlane] || '#ffff00';
+
+    // Calculate real intersection on canvas based on slice ratio
+    // Assume 3D bounding box for synthetic test: 512x512xSlices volume
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+
+    // Map slice ratio (0.0 to 1.0) of other viewport to coordinate in current viewport
+    if (plane === 'axial') {
+      if (otherPlane === 'coronal') {
+        const y = h * sliceRatio;
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+      } else if (otherPlane === 'sagittal') {
+        const x = w * sliceRatio;
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+      }
+    } else if (plane === 'coronal') {
+      if (otherPlane === 'axial') {
+        const y = h * (1 - sliceRatio); // Axial Z mapped to Coronal Y (inverted usually)
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+      } else if (otherPlane === 'sagittal') {
+        const x = w * sliceRatio;
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+      }
+    } else if (plane === 'sagittal') {
+      if (otherPlane === 'axial') {
+        const y = h * (1 - sliceRatio); // Axial Z mapped to Sagittal Y
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+      } else if (otherPlane === 'coronal') {
+        const x = w * sliceRatio; // Coronal Y mapped to Sagittal X
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+      }
+    }
+    
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+}
+
+function clearReferenceLines(index) {
+  const cell = document.getElementById(`viewport-${index}`);
+  if (!cell) return;
+  const overlayCanvas = cell.querySelector('.overlay-canvas');
+  overlayCanvas.getContext('2d').clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+}
+
+function syncSlices(sourceIndex) {
+  const sourceVp = viewports[sourceIndex];
+  const ratio = sourceVp.totalSlices > 1 ? sourceVp.currentSlice / (sourceVp.totalSlices - 1) : 0;
+
+  viewports.forEach((vp, i) => {
+    if (i === sourceIndex) return;
+    // Sync viewports with same frame of reference
+    vp.currentSlice = Math.round(ratio * (vp.totalSlices - 1));
+    renderViewport(i);
+    updateViewportOverlay(i);
+  });
+
+  // Update reference lines on all viewports
+  if (state.showReferenceLines) {
+    viewports.forEach((_, i) => renderReferenceLines(i));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MEASUREMENTS
+// ═══════════════════════════════════════════════════════════════════
+
+function startMeasurement(vpIndex, x, y) {
+  const type = state.activeTool;
+  state.currentMeasurement = {
+    type, vpIndex,
+    points: [{ x, y }],
+    complete: false,
+  };
+
+  if (type === 'ellipse' || type === 'rect') {
+    state.currentMeasurement.points.push({ x, y }); // end point
+  }
+}
+
+function updateMeasurement(vpIndex, x, y) {
+  if (!state.currentMeasurement) return;
+  const m = state.currentMeasurement;
+
+  if (m.type === 'length') {
+    if (m.points.length < 2) m.points.push({ x, y });
+    else m.points[1] = { x, y };
+  } else if (m.type === 'angle') {
+    if (m.points.length < 3) {
+      m.points[m.points.length - 1] = { x, y };
+      if (m.points.length < 3) m.points.push({ x, y });
+    } else {
+      m.points[2] = { x, y };
+    }
+  } else if (m.type === 'cobb') {
+    // Two lines
+    if (m.points.length < 4) {
+      m.points[m.points.length - 1] = { x, y };
+      if (m.points.length < 4) m.points.push({ x, y });
+    } else {
+      m.points[3] = { x, y };
+    }
+  } else if (m.type === 'ellipse' || m.type === 'rect') {
+    m.points[1] = { x, y };
+  }
+
+  renderMeasurements(vpIndex);
+}
+
+function finishMeasurement(vpIndex) {
+  if (!state.currentMeasurement) return;
+  state.currentMeasurement.complete = true;
+  viewports[vpIndex].measurements.push(state.currentMeasurement);
+  state.currentMeasurement = null;
+  renderMeasurements(vpIndex);
+}
+
+function renderMeasurements(vpIndex) {
+  const cell = document.getElementById(`viewport-${vpIndex}`);
+  if (!cell) return;
+  const canvas = cell.querySelector('.measurement-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const allMeasurements = [...viewports[vpIndex].measurements];
+  if (state.currentMeasurement && state.currentMeasurement.vpIndex === vpIndex) {
+    allMeasurements.push(state.currentMeasurement);
+  }
+
+  allMeasurements.forEach(m => {
+    ctx.strokeStyle = '#ffd700';
+    ctx.fillStyle = '#ffd700';
+    ctx.lineWidth = 1.5;
+    ctx.font = '12px "JetBrains Mono", monospace';
+
+    if (m.type === 'length' && m.points.length >= 2) {
+      const p1 = m.points[0], p2 = m.points[1];
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+
+      // End points
+      [p1, p2].forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Length label
+      const dist = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+      const mm = (dist * state.calibrationFactor * 0.703).toFixed(1);
+      const midX = (p1.x + p2.x) / 2;
+      const midY = (p1.y + p2.y) / 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(midX + 5, midY - 14, ctx.measureText(`${mm} mm`).width + 8, 18);
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText(`${mm} mm`, midX + 9, midY);
+    }
+
+    if (m.type === 'angle' && m.points.length >= 3) {
+      const [p1, p2, p3] = m.points;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y);
+      ctx.stroke();
+
+      [p1, p2, p3].forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Angle calculation
+      const a1 = Math.atan2(p1.y - p2.y, p1.x - p2.x);
+      const a2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
+      let angle = Math.abs(a1 - a2) * (180 / Math.PI);
+      if (angle > 180) angle = 360 - angle;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(p2.x + 10, p2.y - 14, ctx.measureText(`${angle.toFixed(1)}°`).width + 8, 18);
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText(`${angle.toFixed(1)}°`, p2.x + 14, p2.y);
+
+      // Arc
+      ctx.beginPath();
+      const startAngle = Math.min(a1, a2);
+      const endAngle = Math.max(a1, a2);
+      ctx.arc(p2.x, p2.y, 20, startAngle, endAngle);
+      ctx.stroke();
+    }
+
+    if (m.type === 'cobb' && m.points.length >= 4) {
+      const [p1, p2, p3, p4] = m.points;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(p3.x, p3.y);
+      ctx.lineTo(p4.x, p4.y);
+      ctx.stroke();
+
+      [p1, p2, p3, p4].forEach(p => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Cobb angle
+      const a1 = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      const a2 = Math.atan2(p4.y - p3.y, p4.x - p3.x);
+      let cobbAngle = Math.abs(a1 - a2) * (180 / Math.PI);
+      if (cobbAngle > 90) cobbAngle = 180 - cobbAngle;
+
+      const midX = (p1.x + p2.x + p3.x + p4.x) / 4;
+      const midY = (p1.y + p2.y + p3.y + p4.y) / 4;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      const text = `Cobb: ${cobbAngle.toFixed(1)}°`;
+      ctx.fillRect(midX + 5, midY - 14, ctx.measureText(text).width + 8, 18);
+      ctx.fillStyle = '#ffd700';
+      ctx.fillText(text, midX + 9, midY);
+
+      // Perpendicular lines (dashed)
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = '#ffd70080';
+      // Draw perpendiculars from midpoints
+      const mid1 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      const mid2 = { x: (p3.x + p4.x) / 2, y: (p3.y + p4.y) / 2 };
+      ctx.beginPath();
+      ctx.moveTo(mid1.x, mid1.y);
+      ctx.lineTo(mid2.x, mid2.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    if (m.type === 'ellipse' && m.points.length >= 2) {
+      const [p1, p2] = m.points;
+      const cx = (p1.x + p2.x) / 2;
+      const cy = (p1.y + p2.y) / 2;
+      const rx = Math.abs(p2.x - p1.x) / 2;
+      const ry = Math.abs(p2.y - p1.y) / 2;
+
+      ctx.strokeStyle = '#4fc3f7';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Stats
+      const area = (Math.PI * rx * ry * 0.703 * 0.703 * state.calibrationFactor ** 2).toFixed(1);
+      const text = `Area: ${area} mm²`;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillRect(cx + rx + 5, cy - 7, ctx.measureText(text).width + 8, 18);
+      ctx.fillStyle = '#4fc3f7';
+      ctx.fillText(text, cx + rx + 9, cy + 5);
+    }
+
+    if (m.type === 'rect' && m.points.length >= 2) {
+      const [p1, p2] = m.points;
+      ctx.strokeStyle = '#4fc3f7';
+      ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+
+      const w = Math.abs(p2.x - p1.x) * 0.703 * state.calibrationFactor;
+      const h = Math.abs(p2.y - p1.y) * 0.703 * state.calibrationFactor;
+      const area = (w * h).toFixed(1);
+      const text = `Area: ${area} mm²`;
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      const tx = Math.max(p1.x, p2.x) + 5;
+      const ty = Math.min(p1.y, p2.y);
+      ctx.fillRect(tx, ty, ctx.measureText(text).width + 8, 18);
+      ctx.fillStyle = '#4fc3f7';
+      ctx.fillText(text, tx + 4, ty + 13);
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PROBE & MAGNIFY
+// ═══════════════════════════════════════════════════════════════════
+
+function renderProbe(vpIndex, x, y) {
+  const cell = document.getElementById(`viewport-${vpIndex}`);
+  const canvas = cell.querySelector('.measurement-canvas');
+  const ctx = canvas.getContext('2d');
+  const vp = viewports[vpIndex];
+
+  renderMeasurements(vpIndex); // redraw existing
+
+  if (!vp.pixelData) return;
+
+  const dicomCanvas = cell.querySelector('.dicom-canvas');
+  const scale = Math.min(dicomCanvas.width / 512, dicomCanvas.height / 512) * vp.zoom;
+  const imgX = Math.floor((x - dicomCanvas.width / 2 - vp.panX) / scale + 256);
+  const imgY = Math.floor((y - dicomCanvas.height / 2 - vp.panY) / scale + 256);
+
+  if (imgX >= 0 && imgX < 512 && imgY >= 0 && imgY < 512) {
+    const hu = Math.round(vp.pixelData[imgY * 512 + imgX]);
+
+    // Draw crosshair
+    ctx.strokeStyle = '#4fc3f7';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - 15, y); ctx.lineTo(x - 5, y);
+    ctx.moveTo(x + 5, y); ctx.lineTo(x + 15, y);
+    ctx.moveTo(x, y - 15); ctx.lineTo(x, y - 5);
+    ctx.moveTo(x, y + 5); ctx.lineTo(x, y + 15);
+    ctx.stroke();
+
+    // HU label
+    ctx.font = '12px "JetBrains Mono", monospace';
+    const text = `HU: ${hu}  (${imgX}, ${imgY})`;
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(x + 15, y - 20, ctx.measureText(text).width + 8, 20);
+    ctx.fillStyle = '#4fc3f7';
+    ctx.fillText(text, x + 19, y - 5);
+  }
+}
+
+function renderMagnify(vpIndex, x, y) {
+  const cell = document.getElementById(`viewport-${vpIndex}`);
+  const lens = cell.querySelector('.magnify-lens');
+  const lensCanvas = lens.querySelector('canvas');
+  const dicomCanvas = cell.querySelector('.dicom-canvas');
+  const vp = viewports[vpIndex];
+
+  lens.style.display = 'block';
+  lens.style.left = (x - 80) + 'px';
+  lens.style.top = (y - 80) + 'px';
+
+  const ctx = lensCanvas.getContext('2d');
+  const magnification = 3;
+  const srcSize = 160 / magnification;
+
+  ctx.clearRect(0, 0, 160, 160);
+  ctx.drawImage(dicomCanvas,
+    x - srcSize / 2, y - srcSize / 2, srcSize, srcSize,
+    0, 0, 160, 160
+  );
+
+  // Draw crosshair in center
+  ctx.strokeStyle = '#4fc3f7';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(80, 0); ctx.lineTo(80, 160);
+  ctx.moveTo(0, 80); ctx.lineTo(160, 80);
+  ctx.stroke();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CINE MODE
+// ═══════════════════════════════════════════════════════════════════
+
+function toggleCine() {
+  state.cineActive = !state.cineActive;
+  document.getElementById('tool-cine').classList.toggle('active', state.cineActive);
+
+  viewports.forEach((_, i) => {
+    const cell = document.getElementById(`viewport-${i}`);
+    const cineCtrl = cell.querySelector('.cine-controls');
+    if (state.cineActive) {
+      cineCtrl.classList.add('visible');
+      cineCtrl.classList.remove('hidden');
+    } else {
+      cineCtrl.classList.remove('visible');
+      cineCtrl.classList.add('hidden');
+      if (state.cineInterval) {
+        clearInterval(state.cineInterval);
+        state.cineInterval = null;
+      }
+    }
+  });
+}
+
+function cinePlayPause(vpIndex) {
+  if (state.cineInterval) {
+    clearInterval(state.cineInterval);
+    state.cineInterval = null;
+    return;
+  }
+
+  state.cineInterval = setInterval(() => {
+    const vp = viewports[vpIndex];
+    vp.currentSlice = (vp.currentSlice + 1) % vp.totalSlices;
+    renderViewport(vpIndex);
+    updateViewportOverlay(vpIndex);
+    if (state.sliceSync) syncSlices(vpIndex);
+    if (state.showReferenceLines) viewports.forEach((_, i) => renderReferenceLines(i));
+  }, 1000 / state.cineFPS);
+}
+
+function cineStop(vpIndex) {
+  if (state.cineInterval) {
+    clearInterval(state.cineInterval);
+    state.cineInterval = null;
+  }
+}
+
+function cinePrev(vpIndex) {
+  const vp = viewports[vpIndex];
+  vp.currentSlice = Math.max(0, vp.currentSlice - 1);
+  renderViewport(vpIndex);
+  updateViewportOverlay(vpIndex);
+}
+
+function cineNext(vpIndex) {
+  const vp = viewports[vpIndex];
+  vp.currentSlice = Math.min(vp.totalSlices - 1, vp.currentSlice + 1);
+  renderViewport(vpIndex);
+  updateViewportOverlay(vpIndex);
+}
+
+function setCineFPS(vpIndex, fps) {
+  state.cineFPS = parseInt(fps);
+  const cell = document.getElementById(`viewport-${vpIndex}`);
+  cell.querySelector('.cine-fps').textContent = fps + ' fps';
+
+  // Restart if playing
+  if (state.cineInterval) {
+    clearInterval(state.cineInterval);
+    cinePlayPause(vpIndex);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// LAYOUT
+// ═══════════════════════════════════════════════════════════════════
+
+function setLayout(cols, rows) {
+  state.layout = { cols, rows };
+  state.expandedViewport = -1;
+
+  // Update layout menu
+  document.querySelectorAll('.layout-option').forEach(opt => {
+    opt.classList.toggle('active', opt.dataset.layout === `${cols}x${rows}`);
+  });
+  toggleLayoutMenu(); // close
+
+  initViewports();
+  showToast(`Layout: ${cols}×${rows}`);
+}
+
+function toggleLayoutMenu() {
+  const menu = document.getElementById('layout-menu');
+  menu.classList.toggle('open');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FULLSCREEN
+// ═══════════════════════════════════════════════════════════════════
+
+function toggleFullscreen() {
+  const root = document.getElementById('viewer-root');
+  if (!document.fullscreenElement) {
+    root.requestFullscreen().catch(err => console.error('Fullscreen error:', err));
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+document.addEventListener('fullscreenchange', () => {
+  const isFS = !!document.fullscreenElement;
+  const btn = document.getElementById('btn-fullscreen');
+  btn.setAttribute('aria-pressed', String(isFS));
+
+  const icon = document.getElementById('fs-icon-expand');
+  if (isFS) {
+    icon.innerHTML = '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>';
+  } else {
+    icon.innerHTML = '<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>';
+  }
+
+  // Resize canvases after fullscreen change
+  setTimeout(() => {
+    viewports.forEach((_, i) => {
+      resizeViewportCanvases(i);
+      renderViewport(i);
+    });
+  }, 100);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// SIDEBAR
+// ═══════════════════════════════════════════════════════════════════
+
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  state.sidebarCollapsed = !state.sidebarCollapsed;
+  sidebar.classList.toggle('collapsed', state.sidebarCollapsed);
+
+  setTimeout(() => {
+    viewports.forEach((_, i) => {
+      resizeViewportCanvases(i);
+      renderViewport(i);
+    });
+  }, 350);
+}
+
+function toggleMobileSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.classList.toggle('mobile-open');
+}
+
+function populateSidebar() {
+  const list = document.getElementById('series-list');
+  list.innerHTML = '';
+
+  demoSeries.forEach((series, i) => {
+    const item = document.createElement('div');
+    item.className = 'series-item' + (i === 0 ? ' active' : '');
+    item.draggable = true;
+    item.dataset.seriesIndex = i;
+
+    // Generate thumbnail
+    const thumbCanvas = document.createElement('canvas');
+    thumbCanvas.width = 64;
+    thumbCanvas.height = 64;
+    const thumbCtx = thumbCanvas.getContext('2d');
+
+    // Generate mini synthetic image for thumbnail
+    const thumbData = generateSyntheticSlice(64, 64, Math.floor(series.slices / 2), series.slices, series);
+    const thumbImgData = applyWindowLevel(thumbData, 64, 64, series.ww, series.wl, false);
+    thumbCtx.putImageData(thumbImgData, 0, 0);
+
+    const modalityClass = `modality-${series.modality.toLowerCase()}`;
+
+    item.innerHTML = `
+      <div class="series-thumb"></div>
+      <div class="series-info">
+        <div class="series-name">${series.name}</div>
+        <div class="series-detail">S:${series.seriesNum}</div>
+        <div class="series-slices">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/></svg>
+          ${series.slices}
+        </div>
+      </div>
+    `;
+
+    const thumbWrap = item.querySelector('.series-thumb');
+    thumbWrap.appendChild(thumbCanvas);
+    const badge = document.createElement('span');
+    badge.className = `modality-badge ${modalityClass}`;
+    badge.textContent = series.modality;
+    thumbWrap.appendChild(badge);
+
+    // Drag events
+    item.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('text/series-index', String(i));
+      item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => {
+      item.classList.remove('dragging');
+    });
+
+    // Click to load in active viewport
+    item.addEventListener('click', () => {
+      const vpIdx = state.activeViewportIndex;
+      const vp = viewports[vpIdx];
+      vp.seriesIndex = i;
+      vp.seriesInfo = series;
+      vp.totalSlices = series.slices;
+      vp.windowWidth = series.ww;
+      vp.windowLevel = series.wl;
+      vp.orientationLabels = series.orientation;
+      vp.currentSlice = 0;
+      vp.zoom = 1;
+      vp.panX = 0;
+      vp.panY = 0;
+      renderViewport(vpIdx);
+      updateViewportOverlay(vpIdx);
+      updateSidebarActive();
+      updateStatusBar();
+    });
+
+    list.appendChild(item);
+  });
+}
+
+function updateSidebarActive() {
+  const vp = viewports[state.activeViewportIndex];
+  document.querySelectorAll('.series-item').forEach((item, i) => {
+    item.classList.toggle('active', i === vp.seriesIndex);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DICOM TAG BROWSER
+// ═══════════════════════════════════════════════════════════════════
+
+function openTagBrowser() {
+  const modal = document.getElementById('tag-browser-modal');
+  modal.classList.add('open');
+  populateTagTable(dicomTags);
+  closeContextMenu();
+}
+
+function closeTagBrowser() {
+  document.getElementById('tag-browser-modal').classList.remove('open');
+}
+
+function populateTagTable(tags) {
+  const body = document.getElementById('tag-table-body');
+  body.innerHTML = '';
+  tags.forEach(t => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${t.tag}</td><td>${t.name}</td><td>${t.vr}</td><td title="${t.value}">${t.value}</td>`;
+    body.appendChild(tr);
+  });
+}
+
+function filterTags() {
+  const query = document.getElementById('tag-search-input').value.toLowerCase();
+  const filtered = dicomTags.filter(t =>
+    t.tag.toLowerCase().includes(query) ||
+    t.name.toLowerCase().includes(query) ||
+    t.value.toLowerCase().includes(query)
+  );
+  populateTagTable(filtered);
+}
+
+// Make tag browser draggable
+(function() {
+  let isDragging = false, startX, startY, startLeft, startTop;
+  const header = document.getElementById('tag-browser-header');
+  const browser = document.getElementById('tag-browser');
+
+  header.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.tag-close-btn')) return;
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = browser.getBoundingClientRect();
+    startLeft = rect.left;
+    startTop = rect.top;
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    browser.style.left = (startLeft + e.clientX - startX) + 'px';
+    browser.style.top = (startTop + e.clientY - startY) + 'px';
+  });
+
+  document.addEventListener('mouseup', () => { isDragging = false; });
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+// CONTEXT MENU
+// ═══════════════════════════════════════════════════════════════════
+
+function closeContextMenu() {
+  document.getElementById('context-menu').classList.remove('open');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.context-menu')) closeContextMenu();
+  if (!e.target.closest('.layout-dropdown')) {
+    document.getElementById('layout-menu').classList.remove('open');
+  }
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeContextMenu(); });
+
+// ═══════════════════════════════════════════════════════════════════
+// KEYBOARD SHORTCUTS
+// ═══════════════════════════════════════════════════════════════════
+
+document.addEventListener('keydown', (e) => {
+  // Don't handle shortcuts when typing in inputs
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+  switch (e.key.toLowerCase()) {
+    case 'w': setTool('wl'); break;
+    case 'z': setTool('zoom'); break;
+    case 'p': setTool('pan'); break;
+    case 'l': setTool('length'); break;
+    case 'a': setTool('angle'); break;
+    case 'i': invertImage(); break;
+    case 'c': toggleCine(); break;
+    case 'f': toggleFullscreen(); break;
+    case 'escape':
+      closeContextMenu();
+      closeTagBrowser();
+      break;
+    case 'delete':
+    case 'backspace':
+      // Delete last measurement
+      const vp = viewports[state.activeViewportIndex];
+      if (vp.measurements.length > 0) {
+        vp.measurements.pop();
+        renderMeasurements(state.activeViewportIndex);
+      }
+      break;
+    case 'arrowup':
+    case 'pageup':
+      e.preventDefault();
+      {
+        const vp2 = viewports[state.activeViewportIndex];
+        vp2.currentSlice = Math.max(0, vp2.currentSlice - 1);
+        renderViewport(state.activeViewportIndex);
+        updateViewportOverlay(state.activeViewportIndex);
+        if (state.sliceSync) syncSlices(state.activeViewportIndex);
+        if (state.showReferenceLines) viewports.forEach((_, i) => renderReferenceLines(i));
+      }
+      break;
+    case 'arrowdown':
+    case 'pagedown':
+      e.preventDefault();
+      {
+        const vp3 = viewports[state.activeViewportIndex];
+        vp3.currentSlice = Math.min(vp3.totalSlices - 1, vp3.currentSlice + 1);
+        renderViewport(state.activeViewportIndex);
+        updateViewportOverlay(state.activeViewportIndex);
+        if (state.sliceSync) syncSlices(state.activeViewportIndex);
+        if (state.showReferenceLines) viewports.forEach((_, i) => renderReferenceLines(i));
+      }
+      break;
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DRAG & DROP ZONE
+// ═══════════════════════════════════════════════════════════════════
+
+const dropZone = document.getElementById('drag-drop-zone');
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => {
+  dropZone.classList.remove('dragover');
+});
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const files = e.dataTransfer.files;
+  if (files.length > 0) {
+    loadDICOMFile(files[0], state.activeViewportIndex);
+  }
+});
+dropZone.addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.dcm,application/dicom';
+  input.onchange = (e) => {
+    if (e.target.files.length > 0) {
+      loadDICOMFile(e.target.files[0], state.activeViewportIndex);
+    }
+  };
+  input.click();
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// STATUS BAR
+// ═══════════════════════════════════════════════════════════════════
+
+function updateStatusBar() {
+  const vp = viewports[state.activeViewportIndex];
+  if (!vp) return;
+  document.getElementById('status-ww').textContent = Math.round(vp.windowWidth);
+  document.getElementById('status-wl').textContent = Math.round(vp.windowLevel);
+  document.getElementById('status-zoom').textContent = Math.round(vp.zoom * 100) + '%';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MISC UTILITIES
+// ═══════════════════════════════════════════════════════════════════
+
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('visible');
+  setTimeout(() => toast.classList.remove('visible'), 2500);
+}
+
+function showCalibration() {
+  closeContextMenu();
+  const dist = prompt('Enter known distance in mm:', '100');
+  if (dist) {
+    state.calibrationFactor = parseFloat(dist) / 100;
+    showToast(`Calibration set: ${dist} mm`);
+  }
+}
+
+function toggleWLRegion() {
+  closeContextMenu();
+  showToast('Window Level Region: select a region to auto-adjust W/L');
+  setTool('rect');
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// RESIZE HANDLER
+// ═══════════════════════════════════════════════════════════════════
+
+let resizeTimeout;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(() => {
+    viewports.forEach((_, i) => {
+      resizeViewportCanvases(i);
+      renderViewport(i);
+    });
+  }, 100);
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// INITIALIZATION
+// ═══════════════════════════════════════════════════════════════════
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Parse URL Parameters for context injection
+  const params = new URLSearchParams(window.location.search);
+  const paramPatient = params.get('patient');
+  const paramPatientId = params.get('patientId');
+  const paramStudyDate = params.get('studyDate');
+  const paramDesc = params.get('studyDesc');
+  const paramModality = params.get('modality');
+  
+    // Attempt to override with REAL data from remote DB if studyId exists
+    const studyId = params.get('studyId');
+    if (studyId) {
+        fetch('/api/studi/' + studyId)
+          .then(res => res.json())
+          .then(res => {
+             if (res.success && res.data && res.data.series && res.data.series.length > 0) {
+                 demoSeries.length = 0; // Clear synthetic
+                 res.data.series.forEach((s, idx) => {
+                     demoSeries.push({
+                        isReal: true,
+                        instances: s.instances,
+                        name: s.descrizione || 'Serie ' + (idx + 1),
+                        modality: s.modalita || params.get('modality') || 'CT',
+                        slices: s.instances.length || 100,
+                        description: s.descrizione,
+                        seriesNum: s.seriesNumber || (idx + 1),
+                        plane: idx % 3 === 0 ? 'axial' : idx % 3 === 1 ? 'coronal' : 'sagittal', 
+                        orientation: { top: 'A', bottom: 'P', left: 'R', right: 'L' },
+                        thumbGradient: [20, 80],
+                        ww: 400, wl: 40,
+                        patient: paramPatient || '',
+                        studyDate: paramStudyDate || '',
+                        patientId: paramPatientId || '',
+                        accession: res.data.accessionNumber || '',
+                        institution: res.data.sedeEsame || ''
+                     });
+                 });
+                 // Re-init with real data
+                 populateSidebar();
+                 initViewports();
+                 updateStatusBar();
+             }
+          }).catch(e => console.warn('Real Database Fetch error', e));
+    }
+
+  populateSidebar();
+    const uiDate = document.querySelector('.study-date');
+    const uiDesc = document.querySelector('.study-desc');
+    const uiMeta = document.querySelector('.study-meta');
+    
+    if (uiDate && paramStudyDate) {
+      const y = paramStudyDate.substring(0,4);
+      const m = paramStudyDate.substring(4,6);
+      const d = paramStudyDate.substring(6,8);
+      uiDate.textContent = `${d}/${m}/${y}`;
+    }
+    if (uiDesc && paramDesc) uiDesc.textContent = paramDesc;
+    if (uiMeta && paramPatient) uiMeta.textContent = `${paramPatient.replace(/\^/g, ', ')} — ID: ${paramPatientId || '123'}`;
+  }
+
+  populateSidebar();
+  initViewports();
+  updateStatusBar();
+
+  // Load Cornerstone libraries if available
+  if (typeof cornerstone !== 'undefined') {
+    console.log('Cornerstone.js loaded - DICOM rendering available');
+  }
+  if (typeof cornerstoneWADOImageLoader !== 'undefined' && typeof dicomParser !== 'undefined') {
+    try {
+      cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+      cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
+      console.log('WADO Image Loader configured');
+    } catch(e) { console.warn('WADO config error:', e); }
+  }
+});
+</script>
+
+<!-- Cornerstone.js Libraries (loaded at end for performance) -->
+<script src="https://unpkg.com/dicom-parser@1.8.21/dist/dicomParser.min.js" defer></script>
+</body>
+</html>
