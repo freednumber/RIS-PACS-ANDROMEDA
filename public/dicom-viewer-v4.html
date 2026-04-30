@@ -1569,19 +1569,13 @@ async function renderViewport(index) {
       if (imageCache.has(instance.id)) {
         const cached = imageCache.get(instance.id);
         if (cached !== 'error') {
-            useSynthetic = false;
-            pixelData = cached.data;
-            vp.pixelData = cached.data;
-            vp.stats = cached.stats;
-            vp.seriesInfo.rows = cached.rows;
-            vp.seriesInfo.cols = cached.cols;
-            vp.seriesInfo.intercept = cached.intercept;
-            
-            if (cached.ww !== undefined && cached.wl !== undefined && !vp.initializedWl) {
-                vp.windowWidth = cached.ww;
-                vp.windowLevel = cached.wl;
-                vp.initializedWl = true;
-            }
+           useSynthetic = false;
+           pixelData = cached.data;
+           if (cached.ww !== undefined && cached.wl !== undefined && !vp.initializedWl) {
+               vp.windowWidth = cached.ww;
+               vp.windowLevel = cached.wl;
+               vp.initializedWl = true;
+           }
         } else {
            // EXPLICIT FAILURE FOR REAL DATA
            useSynthetic = false; 
@@ -1705,24 +1699,17 @@ function updateViewportOverlay(index) {
   // Diagnostic HUD
   const hud = cell.querySelector('.diagnostic-hud');
   if (hud && !useSynthetic && vp.pixelData) {
-      hud.style.pointerEvents = 'auto';
       const stats = vp.stats || { min: 0, max: 0 };
       hud.style.display = 'block';
       hud.innerHTML = `
-          <div style="color: #4fc3f7; font-weight: bold; margin-bottom: 4px;">DECODER DIAGNOSTIC</div>
-          <div>Mode: <span style="color: #ff9800;">Surgical Scan</span></div>
-          <div>HU: [${Math.round(stats.min)} to ${Math.round(stats.max)}]</div>
-          <button onclick="forceBrainWindow(${index})" style="margin-top:8px; width: 100%; background: #0078d4; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 10px;">FORCE BRAIN (80/40)</button>
+          <div style="color: #4fc3f7; font-weight: bold; margin-bottom: 4px;">SYSTEM DIAGNOSTIC (v4)</div>
+          <div>Mode: <span style="color: #ff9800;">Real DICOM</span></div>
+          <div>Resolution: ${si.rows || 512}x${si.cols || 512}</div>
+          <div>HU Range: [${Math.round(stats.min)} to ${Math.round(stats.max)}]</div>
+          <div>Intercept: ${si.intercept || 0}</div>
+          <div style="margin-top:4px; font-size: 10px; color: #888;">Implicit VR Surgical Scan: OK</div>
       `;
   }
-}
-
-function forceBrainWindow(idx) {
-    const vp = viewports[idx];
-    vp.windowWidth = 80;
-    vp.windowLevel = 40;
-    renderViewport(idx);
-    updateViewportOverlay(idx);
 }
 
 function updateSliceProgress(index) {
@@ -2053,8 +2040,7 @@ async function decodeJpegToFloat32(uint8Array, rows, cols) {
         
         const pixels = new Float32Array(canvas.width * canvas.height);
         for (let i = 0; i < pixels.length; i++) {
-            // Use R channel (assuming grayscale JPEG)
-            pixels[i] = imgData[i * 4]; 
+            pixels[i] = imgData[i * 4];
         }
         bitmap.close();
         return pixels;
@@ -2126,6 +2112,7 @@ function parseDicomBuffer(arrayBuffer) {
             const raw8 = new Uint8Array(sub);
 
             // Check for JPEG SOI (FF D8)
+            // Even if isEncapsulated is false (missing tag detection), we scan bytes
             const isJpeg = isEncapsulated || (raw8[0] === 0xFF && raw8[1] === 0xD8);
             
             if (isJpeg) {
@@ -2202,7 +2189,7 @@ async function fetchRealDicomInstance(instanceId, vpIndex) {
                             samplesPerPixel: parsed.dataset.uint16('x00280002') || 1,
                             rows: parsed.rows,
                             columns: parsed.cols,
-                            bitsAllocated: 16,
+                            bitsAllocated: 16, // Assuming 16 for these RX images
                             bitsStored: parsed.dataset.uint16('x00280101') || 16,
                             pixelRepresentation: parsed.dataset.uint16('x00280103') || 0,
                             pixelData: parsed.encapsulatedData
@@ -2234,7 +2221,7 @@ async function fetchRealDicomInstance(instanceId, vpIndex) {
             }
             imageCache.set(instanceId, parsed);
             
-            // Refresh sidebar thumbnails if this was a series thumbnail load
+            // Refresh sidebar thumbnails if this was a series thumbnail load or just to keep UX updated
             if (vpIndex === -1) {
                 requestAnimationFrame(() => populateSidebar());
             }

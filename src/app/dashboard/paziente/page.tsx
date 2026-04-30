@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import ImageViewer from '@/components/ImageViewer';
 
 interface ExamData {
     id: string;
@@ -29,9 +30,12 @@ interface PatientInfo {
 export default function PazienteDashboard() {
     const [patient, setPatient] = useState<PatientInfo | null>(null);
     const [completedExams, setCompletedExams] = useState<ExamData[]>([]);
+    const [upcomingExams, setUpcomingExams] = useState<ExamData[]>([]);
     const [selectedExamId, setSelectedExamId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [viewerExamId, setViewerExamId] = useState<string | null>(null);
+    const [showBookingModal, setShowBookingModal] = useState(false);
+    const [bookingForm, setBookingForm] = useState({ tipoEsame: 'RX', descrizioneEsame: '', dataDesiderata: '', struttura: 'Andromeda General Hospital', note: '' });
 
     // Build the viewer URL with patient/exam context
     const viewerUrl = useMemo(() => {
@@ -47,7 +51,7 @@ export default function PazienteDashboard() {
             institution: exam.struttura || '',
             modality: exam.tipo || 'CT',
         });
-        return `/dicom-viewer.html?${params.toString()}`;
+        return `/dicom-viewer-v4.html?${params.toString()}`;
     }, [viewerExamId, completedExams, patient]);
 
     // Close viewer on Escape
@@ -71,6 +75,7 @@ export default function PazienteDashboard() {
                 if (examData.success) {
                     const completed = examData.data?.completed || [];
                     setCompletedExams(completed);
+                    setUpcomingExams(examData.data?.upcoming || []);
                     // Selection logic: auto-load latest if available
                     if (completed.length > 0 && !selectedExamId) {
                         fetchExamDetails(completed[0].id);
@@ -94,6 +99,41 @@ export default function PazienteDashboard() {
         } catch (err) { console.error(err); }
     };
 
+    const handleBookExam = async (e: React.FormEvent) => {
+        e.preventDefault();
+        try {
+            const res = await fetch('/api/prenotazioni', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(bookingForm)
+            });
+            if (res.ok) {
+                setShowBookingModal(false);
+                fetch('/api/paziente/esami').then(r => r.json()).then(d => {
+                    if(d.success) {
+                        setUpcomingExams(d.data?.upcoming || []);
+                        setCompletedExams(d.data?.completed || []);
+                    }
+                });
+                setBookingForm({ tipoEsame: 'RX', descrizioneEsame: '', dataDesiderata: '', struttura: 'Andromeda General Hospital', note: '' });
+                alert("Richiesta di prenotazione inviata con successo.");
+            }
+        } catch(e) { console.error(e); }
+    };
+
+    const handleAcceptProposal = async (id: string, accept: boolean) => {
+        try {
+            const res = await fetch(`/api/prenotazioni/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ stato: accept ? 'CONFERMATO' : 'ANNULLATO' })
+            });
+            if (res.ok) {
+                fetch('/api/paziente/esami').then(r => r.json()).then(d => d.success && setUpcomingExams(d.data?.upcoming || []));
+            }
+        } catch (e) { console.error(e); }
+    };
+
     const selectedExam = useMemo(() => 
         completedExams.find(e => e.id === selectedExamId), 
     [completedExams, selectedExamId]);
@@ -107,6 +147,69 @@ export default function PazienteDashboard() {
         });
         return groups;
     }, [completedExams]);
+
+    const handlePrintReferto = () => {
+        const content = document.getElementById('referto-content')?.innerHTML;
+        if (!content) return;
+        const printWin = window.open('', '_blank');
+        if (printWin) {
+            printWin.document.write(`
+                <html>
+                    <head>
+                        <title>Stampa Referto</title>
+                        <style>
+                            @page { margin: 20mm; }
+                            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #000; font-size: 14px; line-height: 1.6; }
+                            h3 { font-size: 20px; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; border-bottom: 2px solid #000; padding-bottom: 10px; }
+                            p { margin: 0; }
+                            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; border-bottom: 1px solid #ccc; padding-bottom: 20px; }
+                            .text-slate-600 { color: #333; font-family: Georgia, serif; }
+                            .pt-16 { padding-top: 50px; font-style: italic; font-size: 11px; text-align: center; }
+                            .text-sm { font-size: 14px; }
+                            .text-[10px], .text-[9px], .text-[8px] { font-size: 10px; color: #666; text-transform: uppercase; font-weight: bold; margin-bottom: 2px; }
+                            label { display: block; font-size: 10px; color: #666; text-transform: uppercase; font-weight: bold; }
+                            .border-l-2 { border-left: 2px solid #000; padding-left: 10px; margin-bottom: 10px; }
+                            svg { display: none; }
+                        </style>
+                    </head>
+                    <body>
+                        ${content}
+                    </body>
+                </html>
+            `);
+            printWin.document.close();
+            printWin.focus();
+            setTimeout(() => {
+                printWin.print();
+                printWin.close();
+            }, 500);
+        }
+    };
+
+    const handleDownloadReferto = () => {
+        const text = selectedExam?.refertoText || "In attesa di refertazione ufficiale da parte del medico radiologo esperto.";
+        const dateStr = selectedExam?.data ? new Date(selectedExam.data).toLocaleDateString() : '';
+        const blob = new Blob([
+            `REFERTO UFFICIALE - ${selectedExam?.struttura || ''}\n`,
+            "--------------------------------------------------\n",
+            `Paziente: ${patient?.nome} ${patient?.cognome}\n`,
+            `Esame: ${selectedExam?.tipo} - ${selectedExam?.descrizione}\n`,
+            `Data Esame: ${dateStr}\n`,
+            "--------------------------------------------------\n\n",
+            `ESITO E CONSIDERAZIONI CLINICHE:\n`,
+            `${text}\n\n`,
+            "--------------------------------------------------\n",
+            `Documento firmato digitalmente.`
+        ], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Referto_${patient?.cognome || 'Paziente'}_${selectedExam?.tipo || 'Esame'}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
 
     if (loading) {
         return <div className="flex items-center justify-center h-64"><div className="animate-spin w-8 h-8 border-2 border-primary-500 border-t-transparent rounded-full" /></div>;
@@ -152,12 +255,53 @@ export default function PazienteDashboard() {
 
                 {/* Fascicolo Radiologico */}
                 <div className="md:col-span-9 glass-card p-6 h-full flex flex-col">
-                    <div className="flex items-center gap-2 mb-6">
-                        <span className="text-cyan-400">📋</span>
-                        <h2 className="text-lg font-bold">Fascicolo Radiologico</h2>
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-2">
+                            <span className="text-cyan-400">📋</span>
+                            <h2 className="text-lg font-bold">Fascicolo Radiologico</h2>
+                        </div>
+                        <button onClick={() => setShowBookingModal(true)} className="px-4 py-2 bg-[#00D4BE]/20 text-[#00D4BE] border border-[#00D4BE]/50 hover:bg-[#00D4BE]/30 transition-colors rounded-lg text-xs font-bold uppercase tracking-wider">
+                            + Prenota Esame
+                        </button>
                     </div>
 
                     <div className="space-y-8 overflow-y-auto pr-2 max-h-[400px] scrollbar-thin">
+                        {/* Upcoming / Pending Exams Section */}
+                        {upcomingExams.length > 0 && (
+                            <div className="space-y-4 mb-6">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]" />
+                                    <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-500/70">Prossimi Appuntamenti</h3>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {upcomingExams.map((exam) => (
+                                        <div key={exam.id} className="p-4 rounded-xl border bg-amber-500/5 border-amber-500/20 flex flex-col gap-3">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <h4 className="text-sm font-bold text-amber-100">{exam.descrizione}</h4>
+                                                    <div className="text-xs text-amber-400/80 mt-1">{new Date(exam.data).toLocaleString('it-IT')}</div>
+                                                </div>
+                                                <span className={`text-[9px] px-2 py-1 rounded font-black tracking-widest ${
+                                                    exam.stato === 'IN_ATTESA' ? 'bg-slate-800 text-slate-300' : 
+                                                    exam.stato === 'PROPOSTA_ALTERNA' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' : 
+                                                    'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                                }`}>
+                                                    {exam.stato}
+                                                </span>
+                                            </div>
+                                            {exam.stato === 'PROPOSTA_ALTERNA' && (
+                                                <div className="mt-2 pt-2 border-t border-amber-500/20 flex gap-2">
+                                                    <button onClick={() => handleAcceptProposal(exam.id, true)} className="flex-1 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[10px] font-bold uppercase rounded border border-emerald-500/30">Accetta Nuova Data</button>
+                                                    <button onClick={() => handleAcceptProposal(exam.id, false)} className="py-1.5 px-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-[10px] font-bold uppercase rounded border border-red-500/30">Rifiuta</button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Completed Exams */}
                         {Object.entries(examsByStructure).map(([structure, exams]) => (
                             <div key={structure} className="space-y-4">
                                 <div className="flex items-center gap-3">
@@ -221,41 +365,24 @@ export default function PazienteDashboard() {
             </div>
 
             {/* ═══ FULLSCREEN DICOM VIEWER MODAL ═══ */}
-            {viewerExamId && viewerUrl && (
+            {viewerExamId && selectedExam?.series && (
                 <div className="fixed inset-0 z-[9999] bg-black flex flex-col animate-fade-in">
-                    {/* Viewer Top Bar */}
-                    <div className="h-12 bg-[#111] border-b border-white/10 flex items-center px-4 gap-4 shrink-0">
-                        <div className="flex items-center gap-3">
-                            <div className="w-7 h-7 rounded-lg bg-cyan-500 flex items-center justify-center text-xs font-black text-white">A</div>
-                            <span className="text-[11px] font-black text-white uppercase tracking-widest">Andromeda Viewer</span>
-                        </div>
-                        <div className="h-5 w-px bg-white/10 mx-2"/>
-                        <span className="text-[10px] text-gray-400 font-mono">
-                            {patient?.nome} {patient?.cognome} — {completedExams.find(e => e.id === viewerExamId)?.descrizione}
-                        </span>
-                        <div className="ml-auto flex items-center gap-2">
-                            <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-widest flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"/>
-                                Live
-                            </span>
-                            <button
-                                onClick={() => setViewerExamId(null)}
-                                className="ml-4 flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-[10px] font-bold text-gray-300 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400 transition-all"
-                            >
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                                </svg>
-                                Chiudi Viewer
-                            </button>
-                        </div>
+                    {/* Viewer Top Bar - Clean Close */}
+                    <div className="absolute top-4 right-6 z-[100]">
+                        <button
+                            onClick={() => setViewerExamId(null)}
+                            className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/60 backdrop-blur-xl border border-white/10 text-[10px] font-black uppercase text-gray-300 hover:bg-red-500/20 hover:border-red-500/40 hover:text-red-400 transition-all shadow-2xl"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round">
+                                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                            Esci dalla Sessione Diagnostica
+                        </button>
                     </div>
-                    {/* Viewer iframe */}
-                    <iframe
-                        src={viewerUrl}
-                        className="flex-1 w-full border-none"
-                        allow="fullscreen"
-                        title="ANDROMEDA DICOM Viewer"
-                    />
+                    
+                    <div className="flex-1 overflow-hidden">
+                        <ImageViewer series={selectedExam.series} />
+                    </div>
                 </div>
             )}
 
@@ -315,7 +442,7 @@ export default function PazienteDashboard() {
                                         Apri Viewer DICOM
                                     </button>
                                     <p className="text-[10px] text-gray-600">
-                                        Il viewer OHIF si aprirà con tutti gli strumenti diagnostici
+                                        Il viewer Andromeda si aprirà con tutti gli strumenti diagnostici
                                     </p>
                                 </div>
                             </div>
@@ -344,12 +471,12 @@ export default function PazienteDashboard() {
                              <span className="text-[10px] font-black uppercase tracking-widest text-[#00D4BE]">REFERTO PDF FIRMATO</span>
                         </div>
                         <div className="flex gap-2">
-                            <button className="px-4 py-1.5 rounded-lg border border-white/10 text-[9px] font-bold uppercase transition-colors hover:bg-white/5 active:bg-white/10">🖨️ Stampa</button>
-                            <button className="px-4 py-1.5 rounded-lg border border-[#00D4BE]/30 text-[9px] font-bold uppercase text-[#00D4BE] transition-colors hover:bg-[#00D4BE]/5">📥 Scarica</button>
+                            <button onClick={handlePrintReferto} className="px-4 py-1.5 rounded-lg border border-white/10 text-[9px] font-bold uppercase transition-colors hover:bg-white/5 active:bg-white/10">🖨️ Stampa</button>
+                            <button onClick={handleDownloadReferto} className="px-4 py-1.5 rounded-lg border border-[#00D4BE]/30 text-[9px] font-bold uppercase text-[#00D4BE] transition-colors hover:bg-[#00D4BE]/5">📥 Scarica</button>
                         </div>
                     </div>
                     
-                    <div className="flex-1 bg-white rounded-xl shadow-2xl p-8 text-slate-800 flex flex-col overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
+                    <div id="referto-content" className="flex-1 bg-white rounded-xl shadow-2xl p-8 text-slate-800 flex flex-col overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
                         {/* Report Header */}
                         <div className="flex justify-between items-start border-b border-slate-100 pb-8 mb-8">
                             <div>
@@ -396,6 +523,48 @@ export default function PazienteDashboard() {
                     </div>
                 </div>
             </div>
+            {/* Booking Modal */}
+            {showBookingModal && (
+                <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-scale-in">
+                        <div className="bg-slate-800 px-6 py-4 border-b border-slate-700 flex justify-between items-center">
+                            <h3 className="font-bold text-lg text-white">Prenota Nuovo Esame</h3>
+                            <button onClick={() => setShowBookingModal(false)} className="text-slate-400 hover:text-white">✕</button>
+                        </div>
+                        <form onSubmit={handleBookExam} className="p-6 space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Tipo Esame</label>
+                                    <select required value={bookingForm.tipoEsame} onChange={e => setBookingForm({...bookingForm, tipoEsame: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:border-[#00D4BE] outline-none">
+                                        <option value="RX">RX - Radiologia Tradizionale</option>
+                                        <option value="RMN">RMN - Risonanza Magnetica</option>
+                                        <option value="TC">TC - Tomografia Computerizzata</option>
+                                        <option value="ECO">ECO - Ecografia</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Data Desiderata</label>
+                                    <input type="datetime-local" required value={bookingForm.dataDesiderata} onChange={e => setBookingForm({...bookingForm, dataDesiderata: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:border-[#00D4BE] outline-none" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Descrizione (Es. RX Torace)</label>
+                                <input type="text" required value={bookingForm.descrizioneEsame} onChange={e => setBookingForm({...bookingForm, descrizioneEsame: e.target.value})} placeholder="Specifica l'esame prescelto" className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:border-[#00D4BE] outline-none" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Note per la Segreteria (Opzionale)</label>
+                                <textarea value={bookingForm.note} onChange={e => setBookingForm({...bookingForm, note: e.target.value})} rows={3} placeholder="Eventuali esigenze o note per la segreteria" className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2.5 text-sm text-white focus:border-[#00D4BE] outline-none resize-none" />
+                            </div>
+                            <div className="pt-4 flex justify-end gap-3">
+                                <button type="button" onClick={() => setShowBookingModal(false)} className="px-5 py-2.5 rounded-lg text-sm font-bold text-slate-400 hover:text-white transition-colors">Annulla</button>
+                                <button type="submit" className="px-5 py-2.5 bg-[#00D4BE] hover:bg-[#00bda9] text-slate-900 rounded-lg text-sm font-black uppercase tracking-widest transition-colors shadow-[0_0_15px_rgba(0,212,190,0.4)]">
+                                    Invia Richiesta
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

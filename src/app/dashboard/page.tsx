@@ -15,6 +15,10 @@ export default function DashboardPage() {
     const [stats, setStats] = useState<any>(null);
     const [userRole, setUserRole] = useState<Ruolo | null>(null);
     const [loading, setLoading] = useState(true);
+    const [showResetModal, setShowResetModal] = useState(false);
+    const [confirmText, setConfirmText] = useState('');
+    const [isResetting, setIsResetting] = useState(false);
+
 
     useEffect(() => {
         Promise.all([
@@ -253,7 +257,93 @@ export default function DashboardPage() {
                         <p className="text-sm mt-1">Inizia creando un nuovo paziente e il suo primo studio</p>
                     </div>
                 )}
-            </div>
+                </div>
+
+            {/* Admin Maintenance Section */}
+            {userRole === 'ADMIN' && (
+                <div className="glass-card p-6 border-t-2 border-red-500/50 bg-red-500/5">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h2 className="text-lg font-bold text-red-500 flex items-center gap-2">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                                    <line x1="12" y1="9" x2="12" y2="13" />
+                                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                                </svg>
+                                Manutenzione di Sistema
+                            </h2>
+                            <p className="text-sm mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                                Operazioni distruttive di manutenzione del database e dei file
+                            </p>
+                        </div>
+                        <button 
+                            onClick={() => setShowResetModal(true)}
+                            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold text-sm transition-all shadow-lg shadow-red-500/20 active:scale-95"
+                        >
+                            Pulisci Database e DICOM
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Reset Confirmation Modal */}
+            {showResetModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                    <div className="glass-card max-w-md w-full p-8 border-red-500/50 animate-scale-in">
+                        <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2">
+                                <path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                            </svg>
+                        </div>
+                        
+                        <h3 className="text-xl font-bold text-center mb-2">Sei assolutamente sicuro?</h3>
+                        <p className="text-sm text-center mb-6" style={{ color: 'var(--color-text-secondary)' }}>
+                            Questa azione cancellerà <b>tutti i pazienti</b>, <b>tutti gli studi</b> e <b>tutti i file DICOM</b> dal server. L'operazione non è reversibile.
+                        </p>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-xs font-bold uppercase tracking-wider mb-2 block" style={{ color: 'var(--color-text-secondary)' }}>
+                                    Scrivi "RESET" per confermare
+                                </label>
+                                <input 
+                                    type="text"
+                                    value={confirmText}
+                                    onChange={(e) => setConfirmText(e.target.value.toUpperCase())}
+                                    placeholder="Scrivi RESET qui"
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-center font-bold tracking-widest focus:border-red-500 outline-none transition-all"
+                                />
+                            </div>
+                            
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => { setShowResetModal(false); setConfirmText(''); }}
+                                    className="flex-1 py-3 rounded-lg font-bold text-sm hover:bg-white/5 transition-all"
+                                >
+                                    Annulla
+                                </button>
+                                <button 
+                                    disabled={confirmText !== 'RESET' || isResetting}
+                                    onClick={async () => {
+                                        setIsResetting(true);
+                                        const res = await fetch('/api/admin/system-reset', { method: 'POST' });
+                                        const data = await res.json();
+                                        if (data.success) {
+                                            window.location.reload();
+                                        } else {
+                                            alert(data.error || 'Errore durante il reset');
+                                            setIsResetting(false);
+                                        }
+                                    }}
+                                    className="flex-1 py-3 bg-red-600 hover:bg-red-700 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg font-bold text-sm text-white transition-all shadow-lg shadow-red-500/20"
+                                >
+                                    {isResetting ? 'Reset in corso...' : 'Sì, RESETTA TUTTO'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

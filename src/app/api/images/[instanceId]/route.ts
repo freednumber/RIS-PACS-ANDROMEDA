@@ -59,7 +59,9 @@ export async function GET(
         const ext = extname(absolutePath).toLowerCase();
         const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
-        return new NextResponse(fileBuffer, {
+        console.log(`[PACS API] Serving instance ${instanceId}: ${fileBuffer.length} bytes, MIME: ${contentType}`);
+
+        return new NextResponse(new Uint8Array(fileBuffer), {
             status: 200,
             headers: {
                 'Content-Type': contentType,

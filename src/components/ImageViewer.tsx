@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import Viewport, { SeriesData } from './Viewport';
 import SeriesThumbnail from './SeriesThumbnail';
+import type { ViewportGeometry } from '@/lib/dicomGeometry';
 
 interface ImageViewerProps {
   series: SeriesData[];
@@ -16,9 +17,15 @@ interface ViewportState {
   zoom: number;
   windowWidth: number;
   windowCenter: number;
+  rotation: number;
+  hflip: boolean;
+  vflip: boolean;
+  invert: boolean;
 }
 
-const WL_PRESETS = [
+export type { ViewportGeometry };
+
+const CT_WL_PRESETS = [
   { name: 'Soft', ww: 400, wc: 40, icon: '🥩' },
   { name: 'Bone', ww: 2000, wc: 300, icon: '🦴' },
   { name: 'Lung', ww: 1500, wc: -500, icon: '🫁' }
@@ -33,15 +40,23 @@ export default function ImageViewer({ series }: ImageViewerProps) {
   const [studyZPos, setStudyZPos] = useState<number | null>(null);
   const [selectedSeriesIdxs, setSelectedSeriesIdxs] = useState<Set<number>>(new Set());
   const [isGlobalFs, setIsGlobalFs] = useState(false);
+  
+  // CINE State
+  const [isCinePlaying, setIsCinePlaying] = useState(false);
+  const [cineFps, setCineFps] = useState(10);
+  const cineIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const mainContainerRef = useRef<HTMLDivElement>(null);
   
+  // Track geometry (IPP, IOP, PixelSpacing, etc.) for each viewport.
+  const [geometries, setGeometries] = useState<Record<number, ViewportGeometry>>({});
+
   // States for each possible viewport (up to 4)
   const [viewportStates, setViewportStates] = useState<ViewportState[]>([
-    { seriesIdx: 0, sliceIdx: 0, zoom: 1, windowWidth: 400, windowCenter: 40 },
-    { seriesIdx: Math.min(1, series.length - 1), sliceIdx: 0, zoom: 1, windowWidth: 400, windowCenter: 40 },
-    { seriesIdx: Math.min(2, series.length - 1), sliceIdx: 0, zoom: 1, windowWidth: 400, windowCenter: 40 },
-    { seriesIdx: Math.min(3, series.length - 1), sliceIdx: 0, zoom: 1, windowWidth: 400, windowCenter: 40 },
+    { seriesIdx: 0, sliceIdx: 0, zoom: 1, windowWidth: 400, windowCenter: 40, rotation: 0, hflip: false, vflip: false, invert: false },
+    { seriesIdx: Math.min(1, series.length - 1), sliceIdx: 0, zoom: 1, windowWidth: 400, windowCenter: 40, rotation: 0, hflip: false, vflip: false, invert: false },
+    { seriesIdx: Math.min(2, series.length - 1), sliceIdx: 0, zoom: 1, windowWidth: 400, windowCenter: 40, rotation: 0, hflip: false, vflip: false, invert: false },
+    { seriesIdx: Math.min(3, series.length - 1), sliceIdx: 0, zoom: 1, windowWidth: 400, windowCenter: 40, rotation: 0, hflip: false, vflip: false, invert: false },
   ]);
 
   /* ── Scout Identification ── */
@@ -92,25 +107,57 @@ export default function ImageViewer({ series }: ImageViewerProps) {
   };
 
   /* ── Sync Handlers ── */
+  const rafRef = useRef<number | null>(null);
+
+  const handleGeometryChange = useCallback((vIdx: number, geometry: ViewportGeometry | null) => {
+    setGeometries(prev => {
+      if (!geometry) {
+         if (!prev[vIdx]) return prev;
+         const next = { ...prev };
+         delete next[vIdx];
+         return next;
+      }
+      return { ...prev, [vIdx]: geometry };
+    });
+  }, []);
+
   const handleSliceChange = (vIdx: number, sliceIdx: number, zPos?: number) => {
     if (zPos !== undefined) setStudyZPos(zPos);
 
-    if (isSynced) {
-      setViewportStates(prev => prev.map(s => ({ ...s, sliceIdx })));
-    } else {
-      setViewportStates(prev => {
-        const next = [...prev];
-        next[vIdx] = { ...next[vIdx], sliceIdx };
-        return next;
-      });
-    }
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+    rafRef.current = requestAnimationFrame(() => {
+      if (isSynced) {
+        setViewportStates(prev => {
+          if (prev.every(s => s.sliceIdx === sliceIdx)) return prev;
+          return prev.map(s => s.sliceIdx === sliceIdx ? s : { ...s, sliceIdx });
+        });
+      } else {
+        setViewportStates(prev => {
+          if (prev[vIdx].sliceIdx === sliceIdx) return prev;
+          const next = [...prev];
+          next[vIdx] = { ...next[vIdx], sliceIdx };
+          return next;
+        });
+      }
+    });
   };
+   
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
 
   const handleZoomChange = (vIdx: number, zoom: number) => {
     if (isSynced) {
-      setViewportStates(prev => prev.map(s => ({ ...s, zoom })));
+      setViewportStates(prev => {
+        if (prev.every(s => s.zoom === zoom)) return prev;
+        return prev.map(s => ({ ...s, zoom }));
+      });
     } else {
       setViewportStates(prev => {
+        if (prev[vIdx].zoom === zoom) return prev;
         const next = [...prev];
         next[vIdx] = { ...next[vIdx], zoom };
         return next;
@@ -123,15 +170,13 @@ export default function ImageViewer({ series }: ImageViewerProps) {
   };
 
   const handleManualWLChange = (vIdx: number, ww: number, wc: number) => {
-    if (isSynced) {
-      setViewportStates(prev => prev.map(s => ({ ...s, windowWidth: ww, windowCenter: wc })));
-    } else {
-      setViewportStates(prev => {
-        const next = [...prev];
-        next[vIdx] = { ...next[vIdx], windowWidth: ww, windowCenter: wc };
-        return next;
-      });
-    }
+    // Modify only the targeted viewport to keep right-click drag local
+    setViewportStates(prev => {
+      if (prev[vIdx].windowWidth === ww && prev[vIdx].windowCenter === wc) return prev;
+      const next = [...prev];
+      next[vIdx] = { ...next[vIdx], windowWidth: ww, windowCenter: wc };
+      return next;
+    });
   };
 
   /* ── Sidebar Handlers ── */
@@ -174,8 +219,71 @@ export default function ImageViewer({ series }: ImageViewerProps) {
 
   /* ── UI Actions ── */
   const resetAll = () => {
-    setViewportStates(prev => prev.map(s => ({ ...s, zoom: 1, sliceIdx: 0, windowWidth: 400, windowCenter: 40 })));
+    setViewportStates(prev => prev.map(s => ({ 
+      ...s, 
+      zoom: 1, 
+      sliceIdx: 0, 
+      windowWidth: 400, 
+      windowCenter: 40,
+      rotation: 0,
+      hflip: false,
+      vflip: false,
+      invert: false
+    })));
+    setGeometries({});
+    setIsCinePlaying(false);
   };
+
+  const handleTransform = (type: 'rotate' | 'hflip' | 'vflip' | 'invert') => {
+    setViewportStates(prev => {
+      const next = [...prev];
+      const s = { ...next[activeViewportIdx] };
+      if (type === 'rotate') s.rotation = (s.rotation + 90) % 360;
+      else if (type === 'hflip') s.hflip = !s.hflip;
+      else if (type === 'vflip') s.vflip = !s.vflip;
+      else if (type === 'invert') s.invert = !s.invert;
+      
+      next[activeViewportIdx] = s;
+      
+      if (isSynced) {
+        return next.map(ns => ({ 
+          ...ns, 
+          rotation: s.rotation, 
+          hflip: s.hflip, 
+          vflip: s.vflip, 
+          invert: s.invert 
+        }));
+      }
+      return next;
+    });
+  };
+
+  /* ── CINE Logic ── */
+  useEffect(() => {
+    if (isCinePlaying) {
+      cineIntervalRef.current = setInterval(() => {
+        setViewportStates(prev => {
+          const next = [...prev];
+          const vIdx = activeViewportIdx;
+          const s = next[vIdx];
+          const totalInstances = series[s.seriesIdx]?.instances.length ?? 0;
+          
+          if (totalInstances > 0) {
+            const nextSlice = (s.sliceIdx + 1) % totalInstances;
+            next[vIdx] = { ...s, sliceIdx: nextSlice };
+            
+            if (isSynced) {
+              return next.map(ns => ({ ...ns, sliceIdx: nextSlice }));
+            }
+          }
+          return next;
+        });
+      }, 1000 / cineFps);
+    } else {
+      if (cineIntervalRef.current) clearInterval(cineIntervalRef.current);
+    }
+    return () => { if (cineIntervalRef.current) clearInterval(cineIntervalRef.current); };
+  }, [isCinePlaying, cineFps, activeViewportIdx, isSynced, series]);
 
   const handleDropSeries = (vIdx: number, seriesIdx: number) => {
     setViewportStates(prev => {
@@ -247,84 +355,145 @@ export default function ImageViewer({ series }: ImageViewerProps) {
       ref={mainContainerRef}
       className={cn(
         "flex flex-col w-full animate-fade-in no-scrollbar overflow-hidden bg-[#020202] transition-all duration-700 ease-in-out",
-        isGlobalFs ? "fixed inset-0 z-[9999] h-screen w-screen p-0" : "h-[850px] rounded-2xl border border-white/5 shadow-2xl"
+        isGlobalFs ? "fixed inset-0 z-[9999] h-screen w-screen p-0" : "h-full rounded-2xl border border-white/5 shadow-2xl"
       )}
     >
       
-      {/* ── Top Diagnostic Toolbar (MedDream Professional) ── */}
-      <div className="h-16 bg-[#080808]/90 backdrop-blur-xl border-b border-white/10 flex items-center px-6 gap-8 shrink-0 z-[60] shadow-2xl">
-         <div className="flex items-center gap-4 pr-8 border-r border-white/10">
-            <div className="w-9 h-9 rounded-lg bg-primary-500 shadow-[0_0_20px_rgba(0,212,185,0.4)] flex items-center justify-center font-black text-white text-sm tracking-tighter">A</div>
+      {/* ── Top Diagnostic Toolbar (Professional Andromeda Ribbon) ── */}
+      <div className="h-16 bg-[#080808]/95 backdrop-blur-2xl border-b border-white/10 flex items-center px-4 gap-4 shrink-0 z-[60] shadow-2xl">
+         <div className="flex items-center gap-3 pr-4 border-r border-white/10 shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-primary-500 shadow-[0_0_20px_rgba(0,212,185,0.4)] flex items-center justify-center font-black text-white text-[10px] tracking-tighter">A</div>
             <div className="flex flex-col">
-               <span className="text-[11px] font-black uppercase tracking-[0.2em] text-white">Andromeda</span>
-               <span className="text-[8px] font-black uppercase tracking-[0.4em] text-primary-500 -mt-1">Workstation</span>
+               <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white leading-tight">Andromeda</span>
+               <span className="text-[7px] font-black uppercase tracking-[0.4em] text-primary-500 -mt-0.5">Workstation</span>
             </div>
          </div>
 
-         {/* Tool Group: View */}
-         <div className="flex items-center gap-3 px-6 border-r border-white/10 h-10">
+         {/* Ribbon Group: ADJUST */}
+         <div className="flex items-center gap-1.5 px-3 border-r border-white/10 shrink-0">
             <button 
               onClick={() => setToolMode('WINDOW')}
-              className={cn("px-4 py-2 rounded-xl flex items-center gap-2.5 transition-all border", toolMode === 'WINDOW' ? "bg-primary-500 border-primary-400 text-white shadow-lg" : "text-gray-500 border-transparent hover:text-white hover:bg-white/5")}
+              className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all border", toolMode === 'WINDOW' ? "bg-primary-500 border-primary-400 text-white shadow-lg shadow-primary-500/20" : "text-gray-500 border-transparent hover:text-white hover:bg-white/5")}
+              title="Windowing (W/L)"
             >
-               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707" /></svg>
-               <span className="text-[10px] font-black uppercase tracking-widest hidden lg:block">Windowing</span>
+               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707" /></svg>
             </button>
             <button 
               onClick={() => setToolMode('ZOOM')}
-              className={cn("px-4 py-2 rounded-xl flex items-center gap-2.5 transition-all border", toolMode === 'ZOOM' ? "bg-primary-500 border-primary-400 text-white shadow-lg" : "text-gray-500 border-transparent hover:text-white hover:bg-white/5")}
+              className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all border", toolMode === 'ZOOM' ? "bg-primary-500 border-primary-400 text-white shadow-lg shadow-primary-500/20" : "text-gray-500 border-transparent hover:text-white hover:bg-white/5")}
+              title="Zoom & Pan"
             >
-               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-               <span className="text-[10px] font-black uppercase tracking-widest hidden lg:block">Zoom / Pan</span>
+               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            </button>
+            <button 
+              onClick={() => handleTransform('invert')}
+              className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-all border", viewportStates[activeViewportIdx].invert ? "bg-white text-black border-white" : "text-gray-500 border-transparent hover:text-white hover:bg-white/5")}
+              title="Invert (Negative)"
+            >
+               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20V2z" fill="currentColor"/></svg>
             </button>
          </div>
 
-         {/* Tool Group: Layout */}
-         <div className="flex items-center gap-3 px-6 border-r border-white/10">
-            <div className="flex items-center gap-1.5 p-1 bg-white/5 rounded-xl border border-white/5">
-              <button onClick={() => setLayout('1x1')} className={cn("w-10 h-10 rounded-lg flex items-center justify-center transition-all", layout === '1x1' ? "bg-white/10 text-primary-400" : "text-gray-600 hover:text-white")}>
-                 <div className="w-4 h-4 border-2 border-current rounded-sm" />
-              </button>
-              <button onClick={() => setLayout('1x2')} className={cn("w-10 h-10 rounded-lg flex items-center justify-center transition-all", layout === '1x2' ? "bg-white/10 text-primary-400" : "text-gray-600 hover:text-white")}>
-                 <div className="flex gap-0.5"><div className="w-1.5 h-4 border-2 border-current rounded-sm" /><div className="w-1.5 h-4 border-2 border-current rounded-sm" /></div>
-              </button>
-              <button onClick={() => setLayout('2x2')} className={cn("w-10 h-10 rounded-lg flex items-center justify-center transition-all", layout === '2x2' ? "bg-white/10 text-primary-400" : "text-gray-600 hover:text-white")}>
-                 <div className="grid grid-cols-2 gap-0.5"><div className="w-1.5 h-1.5 border-2 border-current rounded-sm" /><div className="w-1.5 h-1.5 border-2 border-current rounded-sm" /><div className="w-1.5 h-1.5 border-2 border-current rounded-sm" /><div className="w-1.5 h-1.5 border-2 border-current rounded-sm" /></div>
-              </button>
+         {/* Ribbon Group: PRESETS — only for CT/DX, NOT for MR */}
+         {(() => {
+           const activeSeries = series[viewportStates[activeViewportIdx]?.seriesIdx];
+           const mod = activeSeries?.modalita?.toUpperCase() ?? '';
+           const isCT = mod === 'CT' || mod === 'DX' || mod === 'CR' || mod === 'PT';
+           if (!isCT) return null;
+           return (
+             <div className="flex items-center gap-1.5 px-3 border-r border-white/10 shrink-0">
+               {CT_WL_PRESETS.map(p => (
+                 <button 
+                   key={p.name}
+                   onClick={() => handleWLChange(p.ww, p.wc)}
+                   className="px-2 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest text-gray-500 border border-white/5 hover:text-white hover:border-[#00D4BE]/30 hover:bg-[#00D4BE]/5 transition-all"
+                 >
+                   {p.name}
+                 </button>
+               ))}
+             </div>
+           );
+         })()}
+
+         {/* Ribbon Group: ORIENTATION */}
+         <div className="flex items-center gap-1.5 px-3 border-r border-white/10 shrink-0">
+            <button onClick={() => handleTransform('rotate')} className="w-9 h-9 flex items-center justify-center text-gray-500 hover:text-primary-400 transition-all" title="Rotate 90°">
+               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            </button>
+            <button onClick={() => handleTransform('hflip')} className="w-9 h-9 flex items-center justify-center text-gray-500 hover:text-primary-400 transition-all" title="Flip Horizontal">
+               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path d="M12 2v20M2 12h20M2 12l4-4M2 12l4 4M22 12l-4-4M22 12l4 4"/></svg>
+            </button>
+            <button onClick={() => handleTransform('vflip')} className="w-9 h-9 flex items-center justify-center text-gray-500 hover:text-primary-400 transition-all" title="Flip Vertical">
+               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path d="M12 2v20M12 2l-4 4M12 2l4 4M12 22l-4-4M12 22l4 4"/></svg>
+            </button>
+         </div>
+
+         {/* Ribbon Group: CINE */}
+         <div className="flex items-center gap-3 px-3 border-r border-white/10 shrink-0">
+            <button 
+              onClick={() => setIsCinePlaying(!isCinePlaying)}
+              className={cn("w-10 h-10 rounded-full flex items-center justify-center transition-all border", isCinePlaying ? "bg-rose-500 border-rose-400 text-white animate-pulse" : "bg-white/5 border-white/10 text-gray-400 hover:text-white")}
+            >
+               {isCinePlaying ? (
+                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+               ) : (
+                 <svg className="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+               )}
+            </button>
+            <div className="flex flex-col gap-0.5">
+               <span className="text-[7px] font-black text-gray-600 uppercase tracking-widest">FPS: {cineFps}</span>
+               <input 
+                 type="range" min="1" max="60" value={cineFps} 
+                 onChange={(e) => setCineFps(parseInt(e.target.value))}
+                 className="w-16 h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-primary-500"
+               />
             </div>
          </div>
 
-         {/* Tool Group: Actions */}
-         <div className="flex items-center gap-6">
+         {/* Ribbon Group: WORKSPACE */}
+         <div className="flex items-center gap-1.5 px-3 border-r border-white/10 shrink-0">
+            <button onClick={() => setLayout('1x1')} className={cn("w-9 h-9 rounded-lg flex items-center justify-center transition-all", layout === '1x1' ? "bg-white/10 text-primary-400" : "text-gray-600 hover:text-white")}>
+               <div className="w-3.5 h-3.5 border-2 border-current rounded-sm" />
+            </button>
+            <button onClick={() => setLayout('1x2')} className={cn("w-9 h-9 rounded-lg flex items-center justify-center transition-all", layout === '1x2' ? "bg-white/10 text-primary-400" : "text-gray-600 hover:text-white")}>
+               <div className="flex gap-0.5"><div className="w-1.5 h-3.5 border-2 border-current rounded-sm" /><div className="w-1.5 h-3.5 border-2 border-current rounded-sm" /></div>
+            </button>
+            <button onClick={() => setLayout('2x2')} className={cn("w-9 h-9 rounded-lg flex items-center justify-center transition-all", layout === '2x2' ? "bg-white/10 text-primary-400" : "text-gray-600 hover:text-white")}>
+               <div className="grid grid-cols-2 gap-0.5"><div className="w-1.5 h-1.5 border-2 border-current rounded-sm" /><div className="w-1.5 h-1.5 border-2 border-current rounded-sm" /><div className="w-1.5 h-1.5 border-2 border-current rounded-sm" /><div className="w-1.5 h-1.5 border-2 border-current rounded-sm" /></div>
+            </button>
+         </div>
+
+         {/* Final Actions */}
+         <div className="flex items-center gap-6 ml-auto">
             <button 
               onClick={() => setIsSynced(!isSynced)}
-              className={cn("flex items-center gap-3 px-5 py-2.5 rounded-full border transition-all text-[10px] font-black uppercase tracking-widest", 
-                isSynced ? "bg-primary-500 border-primary-400 text-white shadow-[0_0_25px_rgba(0,212,185,0.4)]" : "bg-white/5 border-white/10 text-gray-500 hover:text-white shadow-xl"
+              className={cn("flex items-center gap-3 px-4 py-2 rounded-full border transition-all text-[9px] font-black uppercase tracking-widest", 
+                isSynced ? "bg-[#00D4BE] border-[#00D4BE]/40 text-[#0A0E1A] shadow-[0_0_20px_rgba(0,212,185,0.4)]" : "bg-white/5 border-white/10 text-gray-500 hover:text-white shadow-xl"
               )}
             >
-               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" /><path d="M10.172 13.828a4 4 0 015.656 0l4-4a4 4 0 10-5.656-5.656l-1.102 1.101" /></svg>
-               Synchronize
+               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" /><path d="M10.172 13.828a4 4 0 015.656 0l4-4a4 4 0 10-5.656-5.656l-1.102 1.101" /></svg>
+               Sync
             </button>
 
             <button 
               onClick={resetAll}
-              className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500 hover:text-white transition-colors flex items-center gap-2 group"
+              className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-600 hover:text-white transition-colors flex items-center gap-2 group"
             >
-               <svg className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-               Reset View
+               <svg className="w-3 h-3 group-hover:rotate-180 transition-transform duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+               Reset
+            </button>
+
+            <button 
+              onClick={toggleGlobalFs}
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-gray-500 hover:text-white hover:bg-white/10 transition-all group"
+            >
+               {isGlobalFs ? (
+                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+               ) : (
+                 <svg className="w-5 h-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+               )}
             </button>
          </div>
-
-         <button 
-           onClick={toggleGlobalFs}
-           className="ml-auto w-12 h-12 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-primary-500/20 hover:border-primary-500/40 transition-all group"
-         >
-            {isGlobalFs ? (
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
-            ) : (
-              <svg className="w-6 h-6 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
-            )}
-         </button>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -380,17 +549,24 @@ export default function ImageViewer({ series }: ImageViewerProps) {
               initialSeriesIdx={viewportStates[idx].seriesIdx}
               isActive={activeViewportIdx === idx}
               onActivate={() => setActiveViewportIdx(idx)}
-              syncSliceIdx={isSynced ? viewportStates[idx].sliceIdx : undefined}
+              syncTargetIpp={isSynced && idx !== activeViewportIdx && geometries[activeViewportIdx] ? geometries[activeViewportIdx].ipp : undefined}
+              syncTargetNormal={isSynced && idx !== activeViewportIdx && geometries[activeViewportIdx] ? geometries[activeViewportIdx].normal : undefined}
               syncZoom={isSynced ? viewportStates[idx].zoom : undefined}
               syncWindowWidth={viewportStates[idx].windowWidth}
               syncWindowCenter={viewportStates[idx].windowCenter}
               onSliceChange={(sliceIdx, zPos) => handleSliceChange(idx, sliceIdx, zPos)}
+              onGeometryChange={(geometry) => handleGeometryChange(idx, geometry)}
+              allGeometries={geometries}
               onZoomChange={(zoom) => handleZoomChange(idx, zoom)}
               onWLChange={(ww, wc) => handleManualWLChange(idx, ww, wc)}
               onDropSeries={(sIdx) => handleDropSeries(idx, sIdx)}
               toolMode={toolMode}
               setToolMode={setToolMode}
-              referenceZ={studyZPos}
+              referenceZ={idx !== activeViewportIdx ? studyZPos : null}
+              rotation={viewportStates[idx].rotation}
+              hflip={viewportStates[idx].hflip}
+              vflip={viewportStates[idx].vflip}
+              invert={viewportStates[idx].invert}
             />
           ))}
         </div>

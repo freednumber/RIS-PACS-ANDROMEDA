@@ -1,8 +1,10 @@
 "use client";
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { initCornerstone, getCornerstone } from '@/lib/cornerstone-init';
 import ViewportOverlay from './ViewportOverlay';
+import type { ViewportGeometry } from './ImageViewer';
+import { dot, sub, getNormal, detectOrientation, computeIntersectionLine, getOrientationColor } from '@/lib/dicomGeometry';
 
 /* ── Types ── */
 export interface SeriesData {
@@ -21,17 +23,26 @@ interface ViewportProps {
   viewportIndex: number;
   isActive: boolean;
   onActivate: () => void;
-  syncSliceIdx?: number;
+  syncTargetIpp?: number[];
+  syncTargetNormal?: number[];
   syncZoom?: number;
   syncWindowWidth?: number;
   syncWindowCenter?: number;
   onSliceChange?: (idx: number, zPos?: number) => void;
+  onGeometryChange?: (geometry: ViewportGeometry | null) => void;
+  allGeometries?: Record<number, ViewportGeometry>;
   onZoomChange?: (zoom: number) => void;
   onWLChange?: (ww: number, wc: number) => void;
   onDropSeries?: (seriesIdx: number) => void;
-  toolMode: 'WINDOW' | 'ZOOM';
   setToolMode?: (mode: 'WINDOW' | 'ZOOM') => void;
+  toolMode?: 'WINDOW' | 'ZOOM';
   referenceZ?: number | null;
+  rotation?: number;
+  hflip?: boolean;
+  vflip?: boolean;
+  invert?: boolean;
+  /** External slice navigation from the workstation slider */
+  desiredSliceIdx?: number;
 }
 
 const BORDER_COLORS = [
@@ -41,32 +52,50 @@ const BORDER_COLORS = [
   { border: 'border-rose-500', dot: 'bg-rose-500', text: 'text-rose-400', glow: 'shadow-[0_0_20px_rgba(244,63,94,0.3)]' },
 ];
 
-export default function Viewport({
+function Viewport({
   allSeries,
   initialSeriesIdx,
   viewportIndex,
   isActive,
   onActivate,
-  syncSliceIdx,
+  syncTargetIpp,
+  syncTargetNormal,
   syncZoom,
   syncWindowWidth,
   syncWindowCenter,
   onSliceChange,
+  onGeometryChange,
+  allGeometries,
   onZoomChange,
   onWLChange,
   onDropSeries,
-  toolMode,
+  toolMode = 'WINDOW',
   setToolMode,
   referenceZ,
+  rotation,
+  hflip,
+  vflip,
+  invert,
+  desiredSliceIdx,
 }: ViewportProps) {
   const [selectedSeriesIdx, setSelectedSeriesIdx] = useState(initialSeriesIdx);
   const [isOver, setIsOver] = useState(false);
   const [currentIdx, setCurrentIdx] = useState(0);
+  const currentIdxRef = useRef(currentIdx);
+  const totalRef = useRef(0);
+  const isSyncUpdateRef = useRef(false);
   const [zRange, setZRange] = useState<{ min: number, max: number } | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number } | null>(null);
   const [orientation, setOrientation] = useState<'axial' | 'sagittal' | 'coronal' | 'unknown'>('axial');
   const [voi, setVoi] = useState({ ww: 400, wc: 40 });
   const [zoomScale, setZoomScale] = useState(1);
+  const [prefetchProgress, setPrefetchProgress] = useState({ current: 0, total: 0 });
+  const [isFullyCached, setIsFullyCached] = useState(false);
+  
+  const cachedIpps = useRef<Record<number, number[]>>({}); // Replaces zCoordinates
+  const [wlDragHud, setWlDragHud] = useState<{ ww: number, wc: number, opacity: number } | null>(null);
+  const hudTimeout = useRef<NodeJS.Timeout | null>(null);
+  const linesCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Sync with parent when drag and drop updates initialSeriesIdx
   useEffect(() => {
@@ -86,6 +115,16 @@ export default function Viewport({
   useEffect(() => { onZoomChangeRef.current = onZoomChange; }, [onZoomChange]);
   useEffect(() => { onActivateRef.current = onActivate; }, [onActivate]);
 
+  const series = allSeries[selectedSeriesIdx];
+  const instances = series?.instances ?? [];
+  const current = instances[currentIdx];
+  const total = instances.length;
+  const color = BORDER_COLORS[viewportIndex % BORDER_COLORS.length];
+
+  // Sync refs with state/instances
+  useEffect(() => { currentIdxRef.current = currentIdx; }, [currentIdx]);
+  useEffect(() => { totalRef.current = instances.length; }, [instances]);
+
   const [loading, setLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -97,26 +136,38 @@ export default function Viewport({
   const isInitialized = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
   const isDragging = useRef<number | null>(null); // null, 0 (Left), 2 (Right)
+  const lastScrollTime = useRef(0);
 
-  const series = allSeries[selectedSeriesIdx];
-  const instances = series?.instances ?? [];
-  const current = instances[currentIdx];
-  const total = instances.length;
-  const color = BORDER_COLORS[viewportIndex % BORDER_COLORS.length];
 
   /* ── Detect Orientation ── */
-  const detectOrientation = (image: any) => {
+  const detectOrientationLocal = (image: any) => {
     const iop = image.data?.string('x00200037')?.split('\\').map(parseFloat);
     if (!iop || iop.length < 6) return 'axial';
 
     const [x1, y1, z1, x2, y2, z2] = iop;
-    
-    if (Math.abs(z1) < 0.1 && Math.abs(z2) < 0.1) return 'axial';
-    if (Math.abs(x1) < 0.1 && Math.abs(x2) < 0.1) return 'sagittal';
-    if (Math.abs(y1) < 0.1 && Math.abs(y2) < 0.1) return 'coronal';
-    
-    return 'axial';
+    const normal = getNormal([x1, y1, z1], [x2, y2, z2]);
+    return detectOrientation(normal);
   };
+
+  /* ── Visual Transforms ── */
+  useEffect(() => {
+    const cs = getCornerstone();
+    const el = viewportRef.current;
+    if (!cs || !el || !isReady) return;
+
+    try {
+      const viewport = cs.getViewport(el);
+      if (viewport) {
+        viewport.rotation = rotation ?? 0;
+        viewport.hflip = hflip ?? false;
+        viewport.vflip = vflip ?? false;
+        viewport.voi.invert = invert ?? false;
+        cs.setViewport(el, viewport);
+      }
+    } catch (err) {
+      console.warn('Cornerstone transform error:', err);
+    }
+  }, [rotation, hflip, vflip, invert, isReady]);
 
   /* ── Initialize Cornerstone ── */
   useEffect(() => {
@@ -154,27 +205,68 @@ export default function Viewport({
     const cs = getCornerstone();
     if (!viewportRef.current || !instanceId || !cs) return;
     
-    setLoading(true);
-    setHasError(false);
-
     try {
       const imageId = `wadouri:/api/images/${instanceId}`;
+      
+      // ONLY show loading for the very first load to prevent flickers during navigation
+      const isFirstLoad = !isInitialized.current;
+      const imageFromCache = cs.imageCache.getImagePromise && cs.imageCache.getImagePromise(imageId);
+      
+      if (!imageFromCache && isFirstLoad) {
+          setLoading(true);
+          setHasError(false);
+      }
+
       const image = await cs.loadImage(imageId);
       
       if (viewportRef.current) {
         cs.displayImage(viewportRef.current, image);
         cs.resize(viewportRef.current);
         
-        if (setupDefault) {
-          cs.fitToWindow(viewportRef.current);
-          
-          if (image.windowWidth !== undefined && image.windowCenter !== undefined) {
-             const newWw = image.windowWidth;
-             const newWc = image.windowCenter;
-             setVoi(prev => (prev.ww === newWw && prev.wc === newWc) ? prev : { ww: newWw, wc: newWc });
-             onWLChangeRef.current?.(newWw, newWc);
-          }
+        // Ensure loading is false immediately after display
+        setLoading(false);
+        
+        // Extract and store IPP for spatial sync
+        const ippStr = image.data?.string('x00200032');
+        const iopStr = image.data?.string('x00200037');
+        const pxSpacingStr = image.data?.string('x00280030');
+        let currentZPos: number | undefined;
+
+        if (ippStr && iopStr && pxSpacingStr) {
+           const ipp = ippStr.split('\\').map(parseFloat);
+           const iop = iopStr.split('\\').map(parseFloat);
+           const pxSpacing = pxSpacingStr.split('\\').map(parseFloat);
+           const rowCos = iop.slice(0, 3);
+           const colCos = iop.slice(3, 6);
+           const normal = getNormal(rowCos, colCos);
+           
+           cachedIpps.current[currentIdxRef.current] = ipp;
+           currentZPos = ipp[2];
+           
+           onGeometryChange?.({
+              ipp, iop, rowCosines: rowCos, colCosines: colCos, normal,
+              sy: pxSpacing[0], sx: pxSpacing[1], // row spacing, col spacing
+              rows: image.rows, cols: image.columns, modality: series.modalita || 'unknown'
+           });
         }
+
+        // LOCK: Only report back to parent if this was a manual user interaction
+        if (!isSyncUpdateRef.current) {
+          onSliceChangeRef.current?.(currentIdxRef.current, currentZPos);
+        }
+        
+        // Reset sync flag
+        isSyncUpdateRef.current = false;
+         if (setupDefault) {
+           cs.fitToWindow(viewportRef.current);
+           
+           if (image.windowWidth !== undefined && image.windowCenter !== undefined) {
+              const newWw = image.windowWidth;
+              const newWc = image.windowCenter;
+              setVoi(prev => (prev.ww === newWw && prev.wc === newWc) ? prev : { ww: newWw, wc: newWc });
+              onWLChangeRef.current?.(newWw, newWc);
+           }
+         }
 
         const viewport = cs.getViewport(viewportRef.current);
         if (viewport) {
@@ -186,12 +278,9 @@ export default function Viewport({
            setVoi(prev => (prev.ww === newWw && prev.wc === newWc) ? prev : { ww: newWw, wc: newWc });
         }
 
-        setOrientation(detectOrientation(image));
-        
-        // IMMEDIATE: Set loading to false once image is displayed
-        setLoading(false);
-
-        if (!zRange && instances.length > 1) {
+         setOrientation(detectOrientationLocal(image));
+ 
+         if (!zRange && instances.length > 1) {
              const firstImgId = `wadouri:/api/images/${instances[0].id}`;
              const lastImgId = `wadouri:/api/images/${instances[instances.length - 1].id}`;
              
@@ -208,25 +297,80 @@ export default function Viewport({
                 }
              }).catch(e => console.warn('Z-range fetch failed:', e));
         }
-
-        const zPos = image.data?.string('x00200032')?.split('\\')[2];
-        const numericZ = zPos ? parseFloat(zPos) : undefined;
-        onSliceChangeRef.current?.(currentIdx, numericZ);
       }
     } catch (err) {
       console.error('Cornerstone load error:', err);
       setHasError(true);
       setLoading(false);
     }
-  }, [currentIdx, instances, zRange]); // currentIdx removed from being a direct trigger for identity change if not needed, but it is used inside. Stabilized by refs.
+  }, [instances, zRange]); // Decoupled from currentIdx
+
+  /* ── Background Pre-fetching Engine ── */
+  useEffect(() => {
+    if (!isReady || instances.length === 0) return;
+
+    let active = true;
+    const total = instances.length;
+    setPrefetchProgress({ current: 0, total });
+    setIsFullyCached(false);
+
+    const cs = getCornerstone();
+    if (!cs) return;
+
+    const prefetch = async () => {
+      // Concurrency limit: 5 simultaneous loads
+      const concurrentLimit = 8;
+      const queue = [...instances];
+      let completed = 0;
+
+      const worker = async () => {
+        while (queue.length > 0 && active) {
+          const instance = queue.shift();
+          if (!instance) break;
+
+          const imageId = `wadouri:/api/images/${instance.id}`;
+          try {
+            const image = await cs.loadImage(imageId);
+            
+            // Store IPP
+            const ippStr = image.data?.string('x00200032');
+            if (ippStr) {
+                const globalIdx = instances.findIndex(ins => ins.id === instance.id);
+                if (globalIdx !== -1) cachedIpps.current[globalIdx] = ippStr.split('\\').map(parseFloat);
+            }
+
+            completed++;
+            if (active) {
+                setPrefetchProgress({ current: completed, total });
+            }
+          } catch (e) {
+            console.warn('Pre-fetch failed for image:', imageId);
+          }
+        }
+      };
+
+      const workers = Array.from({ length: Math.min(concurrentLimit, total) }).map(() => worker());
+      await Promise.all(workers);
+      
+      if (active && completed === total) {
+        setIsFullyCached(true);
+      }
+    };
+
+    prefetch();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedSeriesIdx, instances, isReady]);
 
   /* ── Effect: Load on index change ── */
   useEffect(() => {
-    if (current?.id) {
+    if (instances[currentIdx]?.id) {
       // Use a lock to prevent concurrent loads if quickly scrolling
-      loadImage(current.id, currentIdx === 0);
+      loadImage(instances[currentIdx].id, currentIdx === 0);
     }
-  }, [current?.id, loadImage]); // currentIdx removed - we only want to load when ID changes. navigate handles currentIdx locally.
+  }, [currentIdx, loadImage, instances]); // This is the ONLY place that should trigger on slice change
 
   /* ── Sync from parent ── */
   useEffect(() => {
@@ -240,11 +384,55 @@ export default function Viewport({
     setZoomScale(prev => prev === newZoom ? prev : newZoom);
   }, [syncZoom]);
 
+  /* ── External Slice Navigation ── */
+  const lastDesiredSlice = useRef<number | null>(null);
   useEffect(() => {
-    if (syncSliceIdx !== undefined && syncSliceIdx !== currentIdx && syncSliceIdx < total) {
-      setCurrentIdx(syncSliceIdx);
+    if (desiredSliceIdx !== undefined && desiredSliceIdx >= 0 && desiredSliceIdx < instances.length) {
+      if (lastDesiredSlice.current !== desiredSliceIdx) {
+        lastDesiredSlice.current = desiredSliceIdx;
+        setCurrentIdx(desiredSliceIdx);
+      }
     }
-  }, [syncSliceIdx, currentIdx, total]);
+  }, [desiredSliceIdx, instances.length]);
+
+  /* ── Sync from parent (Anatomical Vector-Link) ── */
+  const lastSyncedIppKey = useRef('');
+
+  useEffect(() => {
+    if (!syncTargetIpp || !syncTargetNormal || instances.length === 0) return;
+
+    // Value-based dedup: skip if the IPP hasn't meaningfully changed
+    // (the parent creates new array refs on every render even for same values)
+    const ippKey = syncTargetIpp[0].toFixed(1) + ',' + syncTargetIpp[1].toFixed(1) + ',' + syncTargetIpp[2].toFixed(1);
+    if (ippKey === lastSyncedIppKey.current) return;
+
+    const myGeom = allGeometries?.[viewportIndex];
+    if (myGeom) {
+      const parallelity = Math.abs(dot(myGeom.normal, syncTargetNormal));
+      // Only sync viewports on the same plane (e.g. two axials sync; axial+sagittal don't)
+      if (parallelity < 0.99) return;
+    }
+
+    const knownIndices = Object.keys(cachedIpps.current).map(Number);
+    if (knownIndices.length === 0) return;
+
+    let bestIdx = knownIndices[0];
+    let minDiff = Infinity;
+    for (const idx of knownIndices) {
+      const ipp = cachedIpps.current[idx];
+      const diff = Math.abs(dot(sub(ipp, syncTargetIpp), syncTargetNormal));
+      if (diff < minDiff) { minDiff = diff; bestIdx = idx; }
+    }
+
+    if (bestIdx !== currentIdx && minDiff < 500) {
+      lastSyncedIppKey.current = ippKey;
+      isSyncUpdateRef.current = true;
+      setCurrentIdx(bestIdx);
+    } else {
+      // Still update the key to avoid re-checking the same target
+      lastSyncedIppKey.current = ippKey;
+    }
+  }, [syncTargetIpp, syncTargetNormal, instances.length, allGeometries, viewportIndex, currentIdx]);
 
   useEffect(() => {
     const cs = getCornerstone();
@@ -269,16 +457,77 @@ export default function Viewport({
     }
   }, [syncWindowWidth, syncWindowCenter, isReady]);
 
+  /* ── Canvas Reference Lines (Features 1 & 3) ── */
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+
+    const drawCrosshairs = () => {
+       const canvas = linesCanvasRef.current;
+       if (!canvas) return;
+       const ctx = canvas.getContext('2d');
+       if (!ctx) return;
+       
+       canvas.width = el.clientWidth;
+       canvas.height = el.clientHeight;
+       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+       const currentGeom = allGeometries?.[viewportIndex];
+       if (!currentGeom || !allGeometries) return;
+
+       Object.entries(allGeometries).forEach(([key, otherGeom]) => {
+          const otherIdx = Number(key);
+          if (otherIdx === viewportIndex) return;
+
+          const linePoints = computeIntersectionLine(
+             currentGeom.ipp, currentGeom.rowCosines, currentGeom.colCosines,
+             currentGeom.sx, currentGeom.sy, currentGeom.cols, currentGeom.rows,
+             otherGeom.ipp, otherGeom.normal
+          );
+
+          if (linePoints) {
+             const { p1, p2 } = linePoints;
+             const cs = getCornerstone();
+             if (!cs) return;
+
+             const canvasP1 = cs.pixelToCanvas(el, p1);
+             const canvasP2 = cs.pixelToCanvas(el, p2);
+
+             if (canvasP1 && canvasP2) {
+                const color = getOrientationColor(detectOrientation(otherGeom.normal));
+                ctx.beginPath();
+                ctx.moveTo(canvasP1.x, canvasP1.y);
+                ctx.lineTo(canvasP2.x, canvasP2.y);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+             }
+          }
+       });
+    };
+
+    // Draw immediately when geometries change
+    drawCrosshairs();
+
+    // Also draw when the image itself redraws (zoom/pan/windowing)
+    el.addEventListener('cornerstoneimagerendered', drawCrosshairs);
+    return () => el.removeEventListener('cornerstoneimagerendered', drawCrosshairs);
+  }, [allGeometries, viewportIndex]);
+
   /* ── Navigation ── */
   const navigate = useCallback(
     (newIdx: number) => {
-      let finalIdx = newIdx;
-      if (newIdx < 0) finalIdx = total - 1;
-      if (newIdx >= total) finalIdx = 0;
+      const total = totalRef.current;
+      if (total <= 0) return;
+
+      const finalIdx = Math.min(Math.max(0, newIdx), total - 1);
       
+      // Make this viewport the master immediately to avoid snapping back
+      onActivateRef.current();
+
       setCurrentIdx(prev => prev === finalIdx ? prev : finalIdx);
     },
-    [total]
+    [] 
   );
 
   /* ── Mouse interactions ── */
@@ -289,17 +538,37 @@ export default function Viewport({
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      navigate(currentIdx + (e.deltaY > 0 ? 1 : -1));
+      
+      // CLINICAL MODIFICATION: Scroll Rate Limiting
+      // Slow down the scrolling if the user flicks the wheel too fast
+      const now = Date.now();
+      if (now - lastScrollTime.current < 20) return; // Max ~50fps scroll
+      lastScrollTime.current = now;
+
+      navigate(currentIdxRef.current + (e.deltaY > 0 ? 1 : -1));
     };
 
     const onMouseDown = (e: MouseEvent) => {
       if (e.button === 0 || e.button === 2) {
-        if (e.button === 2) return;
+        if (e.button === 2) {
+           e.preventDefault();
+           isDragging.current = 2;
+           lastMousePos.current = { x: e.clientX, y: e.clientY };
+           setContextMenu(null);
+           onActivateRef.current();
+           
+           const mod = series?.modalita;
+           if (mod && ['CT', 'MR', 'CR', 'DX', 'DR', 'RG'].includes(mod)) {
+               setWlDragHud({ ww: voi.ww, wc: voi.wc, opacity: 1 });
+               if (hudTimeout.current) clearTimeout(hudTimeout.current);
+           }
+           return;
+        }
         e.preventDefault();
         isDragging.current = e.button;
         lastMousePos.current = { x: e.clientX, y: e.clientY };
         setContextMenu(null);
-        onActivate();
+        onActivateRef.current(); // Use ref
       }
     };
 
@@ -319,7 +588,20 @@ export default function Viewport({
         viewport.translation.x += deltaX / viewport.scale;
         viewport.translation.y += deltaY / viewport.scale;
       } else if (isDragging.current === 2) {
-        if (toolMode === 'ZOOM') {
+        const mod = series?.modalita;
+        const supportsWLDrag = mod && ['CT', 'MR', 'CR', 'DX', 'DR', 'RG'].includes(mod);
+        
+        if (supportsWLDrag) {
+          const sensitivity = mod === 'CT' ? 6 : 3;
+          viewport.voi.windowWidth = Math.max(1, viewport.voi.windowWidth + deltaX * sensitivity);
+          viewport.voi.windowCenter = viewport.voi.windowCenter - deltaY * sensitivity;
+
+          const newWw = viewport.voi.windowWidth;
+          const newWc = viewport.voi.windowCenter;
+          setVoi(prev => (prev.ww === newWw && prev.wc === newWc) ? prev : { ww: newWw, wc: newWc });
+          onWLChangeRef.current?.(newWw, newWc);
+          setWlDragHud({ ww: newWw, wc: newWc, opacity: 1 });
+        } else if (toolMode === 'ZOOM') {
           const zoomDelta = 1 + (deltaY / 100);
           viewport.scale *= zoomDelta;
           const newScale = viewport.scale;
@@ -331,7 +613,7 @@ export default function Viewport({
           const newWw = viewport.voi.windowWidth;
           const newWc = viewport.voi.windowCenter;
           setVoi(prev => (prev.ww === newWw && prev.wc === newWc) ? prev : { ww: newWw, wc: newWc });
-          onWLChangeRef.current?.(viewport.voi.windowWidth, viewport.voi.windowCenter);
+          onWLChangeRef.current?.(newWw, newWc);
         }
       }
 
@@ -340,6 +622,10 @@ export default function Viewport({
 
     const onMouseUp = () => {
       isDragging.current = null;
+      if (hudTimeout.current) clearTimeout(hudTimeout.current);
+      hudTimeout.current = setTimeout(() => {
+         setWlDragHud(prev => prev ? { ...prev, opacity: 0 } : null);
+      }, 1500);
     };
 
     el.addEventListener('wheel', onWheel, { passive: false });
@@ -353,7 +639,7 @@ export default function Viewport({
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [isReady, currentIdx, navigate, toolMode]); // Removed unstable callbacks from deps
+  }, [isReady, navigate, toolMode]); // currentIdx and total REMOVED from deps
 
   /* ── Right Click Handler ── */
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -457,6 +743,8 @@ export default function Viewport({
             zPos={referenceZ ?? undefined}
             studyDate={series.data || '2026-04-16'}
             orientation={orientation}
+            prefetchProgress={prefetchProgress}
+            isFullyCached={isFullyCached}
           />
         )}
 
@@ -477,15 +765,6 @@ export default function Viewport({
           className="relative flex-1 bg-black cursor-crosshair h-full"
           onContextMenu={(e) => e.preventDefault()}
         >
-          {loading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center z-40 bg-black/60 backdrop-blur-[1px]">
-               <div className="w-12 h-12 relative">
-                  <div className="absolute inset-0 border-2 border-primary-500/20 rounded-full" />
-                  <div className="absolute inset-0 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-               </div>
-               <span className="mt-4 text-[9px] font-black uppercase tracking-[0.2em] text-primary-400">Loading Diagnostic Data</span>
-            </div>
-          )}
           
           {hasError && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-[11px] gap-2 p-4 text-center text-gray-400 z-50">
@@ -495,6 +774,16 @@ export default function Viewport({
                <p className="font-bold text-white uppercase tracking-wider">DICOM DECODING FAILURE</p>
                <button onClick={() => loadImage(current.id)} className="text-[10px] text-primary-500 hover:text-primary-400 font-bold border-b border-primary-500/20 pb-0.5">RETRY ENGINE</button>
             </div>
+          )}
+
+          {/* Reference Lines Canvas */}
+          <canvas ref={linesCanvasRef} className="absolute inset-0 z-50 pointer-events-none" />
+          
+          {/* W/L Drag HUD */}
+          {wlDragHud && wlDragHud.opacity > 0 && (
+             <div className="absolute left-1/2 bottom-10 -translate-x-1/2 px-4 py-2 bg-black/80 border border-primary-500/30 rounded-xl pointer-events-none z-[120] text-center text-primary-400 font-mono text-sm shadow-[0_0_20px_rgba(0,0,0,0.8)] transition-opacity duration-300">
+                WW: <span className="text-white font-bold">{wlDragHud.ww.toFixed(0)}</span> | WL: <span className="text-white font-bold">{wlDragHud.wc.toFixed(0)}</span>
+             </div>
           )}
         </div>
 
@@ -562,3 +851,20 @@ export default function Viewport({
     </div>
   );
 }
+
+// Export memoized version to prevent redundant re-renders in the grid
+export default memo(Viewport, (prevProps, nextProps) => {
+  // Only re-render if critical diagnostic state changes
+  return (
+    prevProps.isActive === nextProps.isActive &&
+    prevProps.initialSeriesIdx === nextProps.initialSeriesIdx &&
+    prevProps.syncTargetIpp === nextProps.syncTargetIpp &&
+    prevProps.syncTargetNormal === nextProps.syncTargetNormal &&
+    prevProps.syncZoom === nextProps.syncZoom &&
+    prevProps.syncWindowWidth === nextProps.syncWindowWidth &&
+    prevProps.syncWindowCenter === nextProps.syncWindowCenter &&
+    prevProps.allGeometries === nextProps.allGeometries &&
+    prevProps.toolMode === nextProps.toolMode &&
+    prevProps.allSeries === nextProps.allSeries
+  );
+});

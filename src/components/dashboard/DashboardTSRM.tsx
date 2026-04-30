@@ -1,25 +1,60 @@
 'use client';
 
-import { useState } from 'react';
-
-// Mock Data for Live TSRM Queue
-const liveQueue = [
-    { id: 'L-01', patient: 'Mario Rossi', modality: 'TC Cranio Urgente', exam: 'TC', urgency: 'Urgent', room: 'Sala TC 1', time: 'ORA', status: 'WAITING' },
-    { id: 'L-02', patient: 'Anna Bianchi', modality: 'RX Torace', exam: 'RX', urgency: 'Medium', room: 'Sala RX 2', time: '+10 min', status: 'WAITING' },
-    { id: 'L-03', patient: 'Giuseppe Verdi', modality: 'RX Bacino', exam: 'RX', urgency: 'Medium', room: 'Sala RX 2', time: '+15 min', status: 'WAITING' },
-    { id: 'L-04', patient: 'Lucia Neri', modality: 'RMN Ginocchio', exam: 'RMN', urgency: 'Low', room: 'Sala RMN 1', time: '+35 min', status: 'WAITING' },
-];
+import { useState, useEffect } from 'react';
 
 export default function DashboardTSRM({ stats }: { stats: any }) {
     const [selectedExamId, setSelectedExamId] = useState<string>('L-01');
     const [workflowStep, setWorkflowStep] = useState<1 | 2 | 3>(1); // 1: Acquired, 2: Tech Signed, 3: Doc Signed
+    const [liveQueue, setLiveQueue] = useState<any[]>([]);
+
+    const fetchQueue = async () => {
+        try {
+            const resP = await fetch('/api/studi?stato=PRENOTATO');
+            const resC = await fetch('/api/studi?stato=IN_CORSO');
+            const dataP = await resP.json();
+            const dataC = await resC.json();
+            
+            let queue = [];
+            if (dataP.success) {
+                queue.push(...dataP.data.map((s: any) => ({
+                    id: s.id,
+                    patient: `${s.patient?.nome} ${s.patient?.cognome}`,
+                    modality: s.descrizione || s.modalita,
+                    exam: s.modalita,
+                    urgency: s.priorita === 'URGENTE' ? 'Urgent' : 'Medium',
+                    room: s.sedeEsame || 'Sala 1',
+                    time: 'OGGI',
+                    status: s.stato
+                })));
+            }
+            if (dataC.success) {
+                queue.push(...dataC.data.map((s: any) => ({
+                     id: s.id, patient: `${s.patient?.nome} ${s.patient?.cognome}`, modality: s.descrizione || s.modalita, exam: s.modalita, urgency: s.priorita === 'URGENTE' ? 'Urgent' : 'Wait', room: s.sedeEsame || 'Sala 1', time: 'IN SALA', status: s.stato
+                })));
+            }
+            setLiveQueue(queue);
+            if(queue.length > 0 && selectedExamId === 'L-01') setSelectedExamId(queue[0].id);
+        } catch(e) {}
+    };
+
+    useEffect(() => {
+        fetchQueue();
+        const interval = setInterval(fetchQueue, 30000); // 30s polling
+        return () => clearInterval(interval);
+    }, []);
 
     const activeExam = liveQueue.find(e => e.id === selectedExamId) || liveQueue[0];
 
     const handleSign = () => {
         if (workflowStep === 1) {
             setWorkflowStep(2);
-            // In a real app we would fire an API call here.
+            if(activeExam) {
+               fetch(`/api/studi/${activeExam.id}`, {
+                   method: 'PUT',
+                   headers: {'Content-Type': 'application/json'},
+                   body: JSON.stringify({ stato: 'COMPLETATO' })
+               }).then(() => fetchQueue());
+            }
         }
     };
 
@@ -106,7 +141,7 @@ export default function DashboardTSRM({ stats }: { stats: any }) {
                     <div className="relative">
                         {/* Dynamic SVG graphic based on exam type */}
                         <svg className="w-56 h-56 text-slate-800 drop-shadow-[0_0_30px_rgba(20,184,166,0.15)] animate-[scale-in_0.4s_ease-out]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
-                            {activeExam.exam === 'TC' || activeExam.exam === 'RMN' ? (
+                            {activeExam?.exam === 'TC' || activeExam?.exam === 'RMN' ? (
                                 <>
                                     <ellipse cx="12" cy="12" rx="10" ry="10" className="stroke-teal-900/50" />
                                     <circle cx="12" cy="12" r="6" className="stroke-teal-700/50" />
@@ -134,9 +169,9 @@ export default function DashboardTSRM({ stats }: { stats: any }) {
                     </div>
 
                     <div className="text-center font-mono p-4 rounded-xl border border-slate-800 bg-slate-900/50 backdrop-blur-md">
-                        <div className="text-teal-400 text-lg font-black tracking-[0.2em] uppercase blur-[0.3px]">{activeExam.patient}</div>
-                        <div className="text-slate-400 text-xs font-bold tracking-widest mt-1">Acquisition Window: {activeExam.modality}</div>
-                        {activeExam.urgency === 'Urgent' && (
+                        <div className="text-teal-400 text-lg font-black tracking-[0.2em] uppercase blur-[0.3px]">{activeExam?.patient}</div>
+                        <div className="text-slate-400 text-xs font-bold tracking-widest mt-1">Acquisition Window: {activeExam?.modality}</div>
+                        {activeExam?.urgency === 'Urgent' && (
                             <div className="text-rose-500 font-bold text-[10px] tracking-widest uppercase mt-2 animate-pulse flex items-center justify-center gap-1">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
                                 Priority Override Active
@@ -148,7 +183,7 @@ export default function DashboardTSRM({ stats }: { stats: any }) {
                 {/* Info HUD */}
                 <div className="absolute top-4 left-4 text-[#008080] font-mono text-[10px] font-bold pointer-events-none shadow-sm flex flex-col gap-1">
                     <span>MODE: ACQUISITION</span>
-                    <span>ROOM: {activeExam.room}</span>
+                    <span>ROOM: {activeExam?.room}</span>
                     <span>NET : ENCRYPTED</span>
                 </div>
             </div>

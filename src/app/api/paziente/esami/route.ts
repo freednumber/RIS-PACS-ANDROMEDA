@@ -20,42 +20,12 @@ export async function GET() {
         });
 
         if (!patient) {
-            // Return mock data if no patient found (for demo purposes)
+            // Return empty lists if no patient found, no more mocks to avoid confusion
             return NextResponse.json({
                 success: true,
                 data: {
-                    upcoming: [
-                        {
-                            id: 'mock-1',
-                            tipo: 'MR',
-                            descrizione: 'RM Cranio',
-                            data: '2026-04-20T10:30:00.000Z',
-                            struttura: 'Centro RM Parioli',
-                            stato: 'CONFERMATO',
-                            medico: 'Dr. Bianchi',
-                        },
-                        {
-                            id: 'mock-2',
-                            tipo: 'CR',
-                            descrizione: 'RX Torace',
-                            data: '2026-04-28T14:00:00.000Z',
-                            struttura: 'Centro Diagnostico Roma Nord',
-                            stato: 'IN_ATTESA',
-                            medico: 'Dr.ssa Verdi',
-                        },
-                    ],
-                    completed: [
-                        {
-                            id: 'mock-3',
-                            tipo: 'CT',
-                            descrizione: 'TC Addome',
-                            data: '2026-03-10T09:00:00.000Z',
-                            struttura: 'Clinica Villa Serena',
-                            stato: 'COMPLETATO',
-                            refertoDisponibile: true,
-                            medico: 'Dr. Neri',
-                        },
-                    ],
+                    upcoming: [],
+                    completed: [],
                 },
             });
         }
@@ -97,7 +67,7 @@ export async function GET() {
                 medicoRefertante: { select: { nome: true, cognome: true } },
             },
             orderBy: { dataStudio: 'desc' },
-            take: 3,
+            take: 20,
         });
 
         const upcoming = [

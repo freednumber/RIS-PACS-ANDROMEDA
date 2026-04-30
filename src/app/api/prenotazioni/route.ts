@@ -2,14 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
 
-export async function GET() {
+// Create a new Prenotazione (Patient creates an appointment request)
+export async function POST(request: NextRequest) {
     const user = await getCurrentUser();
-    if (!user) {
-        return NextResponse.json({ success: false, error: 'Non autenticato' }, { status: 401 });
+    if (!user || user.ruolo !== 'PAZIENTE') {
+        return NextResponse.json({ success: false, error: 'Non autorizzato' }, { status: 403 });
     }
 
     try {
-        // Find the patient linked to this user
+        const body = await request.json();
+        
+        // Find patient record
         const patient = await prisma.patient.findFirst({
             where: {
                 OR: [
@@ -20,82 +23,56 @@ export async function GET() {
         });
 
         if (!patient) {
-            return NextResponse.json({ success: true, data: [] });
+            return NextResponse.json({ success: false, error: 'Profilo paziente non trovato' }, { status: 404 });
         }
-
-        const prenotazioni = await prisma.prenotazione.findMany({
-            where: { pazienteId: patient.id },
-            orderBy: { dataDesiderata: 'desc' },
-        });
-
-        return NextResponse.json({ success: true, data: prenotazioni });
-    } catch (error) {
-        console.error('List prenotazioni error:', error);
-        return NextResponse.json({ success: false, error: 'Errore nel recupero delle prenotazioni' }, { status: 500 });
-    }
-}
-
-export async function POST(request: NextRequest) {
-    const user = await getCurrentUser();
-    if (!user) {
-        return NextResponse.json({ success: false, error: 'Non autenticato' }, { status: 401 });
-    }
-
-    try {
-        const body = await request.json();
-        const { tipoEsame, struttura, dataDesiderata, note } = body;
-
-        if (!tipoEsame || !struttura || !dataDesiderata) {
-            return NextResponse.json(
-                { success: false, error: 'Campi obbligatori mancanti (tipoEsame, struttura, dataDesiderata)' },
-                { status: 400 }
-            );
-        }
-
-        // Find patient
-        const patient = await prisma.patient.findFirst({
-            where: {
-                OR: [
-                    { email: user.email },
-                    { codiceFiscale: user.email.toUpperCase() },
-                ],
-            },
-        });
-
-        const pazienteId = patient?.id || user.id;
-
-        // Generate booking code
-        const codicePrenotazione = Math.random().toString(36).substring(2, 8).toUpperCase();
-
-        // Map exam type descriptions
-        const descrizioniEsame: Record<string, string> = {
-            'RM': 'Risonanza Magnetica',
-            'TC': 'Tomografia Computerizzata',
-            'RX': 'Radiografia',
-            'ECO': 'Ecografia',
-            'MG': 'Mammografia',
-            'MOC': 'Densitometria Ossea (MOC)',
-        };
 
         const prenotazione = await prisma.prenotazione.create({
             data: {
-                pazienteId,
-                tipoEsame,
-                descrizioneEsame: descrizioniEsame[tipoEsame] || tipoEsame,
-                struttura,
-                dataDesiderata: new Date(dataDesiderata),
+                pazienteId: patient.id,
+                tipoEsame: body.tipoEsame,
+                descrizioneEsame: body.descrizioneEsame,
+                struttura: body.struttura || 'Andromeda General Hospital',
+                dataDesiderata: new Date(body.dataDesiderata),
                 stato: 'IN_ATTESA',
-                note: note || null,
-                codicePrenotazione,
-            },
+                note: body.note || null,
+                codicePrenotazione: `AND-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+            }
         });
 
-        return NextResponse.json({ success: true, data: prenotazione }, { status: 201 });
+        return NextResponse.json({ success: true, data: prenotazione });
     } catch (error) {
         console.error('Create prenotazione error:', error);
-        return NextResponse.json(
-            { success: false, error: 'Errore nella creazione della prenotazione' },
-            { status: 500 }
+        return NextResponse.json({ success: false, error: 'Errore nella creazione della prenotazione' }, { status: 500 });
+    }
+}
+
+// Get all Prenotazioni (Segreteria sees requests)
+export async function GET(request: NextRequest) {
+    const user = await getCurrentUser();
+    if (!user || (user.ruolo !== 'SEGRETERIA' && user.ruolo !== 'ADMIN')) {
+        return NextResponse.json({ success: false, error: 'Non autorizzato' }, { status: 403 });
+    }
+
+    try {
+        const prenotazioni = await prisma.prenotazione.findMany({
+            where: {
+                // Focus on pending and proposed, others are in history
+                stato: { in: ['IN_ATTESA', 'PROPOSTA_ALTERNA', 'CONFERMATO'] }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+        
+        // Fetch patient info for each prenotazione
+        const withPatientInfo = await Promise.all(
+            prenotazioni.map(async (p) => {
+                const pat = await prisma.patient.findUnique({ where: { id: p.pazienteId }, select: { nome: true, cognome: true, codiceFiscale: true } });
+                return { ...p, paziente: pat };
+            })
         );
+
+        return NextResponse.json({ success: true, data: withPatientInfo });
+    } catch (error) {
+         console.error('Fetch prenotazioni error:', error);
+         return NextResponse.json({ success: false, error: 'Errore nel recupero delle prenotazioni' }, { status: 500 });
     }
 }

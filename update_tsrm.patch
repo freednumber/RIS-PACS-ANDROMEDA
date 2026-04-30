@@ -1,0 +1,72 @@
+--- src/components/dashboard/DashboardTSRM.tsx
++++ src/components/dashboard/DashboardTSRM.tsx
+@@ -1,23 +1,50 @@
+ 'use client';
+ 
+-import { useState } from 'react';
++import { useState, useEffect } from 'react';
+ 
+-// Mock Data for Live TSRM Queue
+-const liveQueue = [
+-    { id: 'L-01', patient: 'Mario Rossi', modality: 'TC Cranio Urgente', exam: 'TC', urgency: 'Urgent', room: 'Sala TC 1', time: 'ORA', status: 'WAITING' },
+-    { id: 'L-02', patient: 'Anna Bianchi', modality: 'RX Torace', exam: 'RX', urgency: 'Medium', room: 'Sala RX 2', time: '+10 min', status: 'WAITING' },
+-    { id: 'L-03', patient: 'Giuseppe Verdi', modality: 'RX Bacino', exam: 'RX', urgency: 'Medium', room: 'Sala RX 2', time: '+15 min', status: 'WAITING' },
+-    { id: 'L-04', patient: 'Lucia Neri', modality: 'RMN Ginocchio', exam: 'RMN', urgency: 'Low', room: 'Sala RMN 1', time: '+35 min', status: 'WAITING' },
+-];
+-
+ export default function DashboardTSRM({ stats }: { stats: any }) {
+     const [selectedExamId, setSelectedExamId] = useState<string>('L-01');
+     const [workflowStep, setWorkflowStep] = useState<1 | 2 | 3>(1); // 1: Acquired, 2: Tech Signed, 3: Doc Signed
++    const [liveQueue, setLiveQueue] = useState<any[]>([]);
++
++    const fetchQueue = async () => {
++        try {
++            const resP = await fetch('/api/studi?stato=PRENOTATO');
++            const resC = await fetch('/api/studi?stato=IN_CORSO');
++            const dataP = await resP.json();
++            const dataC = await resC.json();
++            
++            let queue = [];
++            if (dataP.success) {
++                queue.push(...dataP.data.map((s: any) => ({
++                    id: s.id,
++                    patient: `${s.patient?.nome} ${s.patient?.cognome}`,
++                    modality: s.descrizione || s.modalita,
++                    exam: s.modalita,
++                    urgency: s.priorita === 'URGENTE' ? 'Urgent' : 'Medium',
++                    room: s.sedeEsame || 'Sala 1',
++                    time: 'OGGI',
++                    status: s.stato
++                })));
++            }
++            if (dataC.success) {
++                queue.push(...dataC.data.map((s: any) => ({
++                     id: s.id, patient: `${s.patient?.nome} ${s.patient?.cognome}`, modality: s.descrizione || s.modalita, exam: s.modalita, urgency: s.priorita === 'URGENTE' ? 'Urgent' : 'Wait', room: s.sedeEsame || 'Sala 1', time: 'IN SALA', status: s.stato
++                })));
++            }
++            setLiveQueue(queue);
++            if(queue.length > 0 && selectedExamId === 'L-01') setSelectedExamId(queue[0].id);
++        } catch(e) {}
++    };
++
++    useEffect(() => {
++        fetchQueue();
++        const interval = setInterval(fetchQueue, 30000); // 30s polling
++        return () => clearInterval(interval);
++    }, []);
+ 
+     const activeExam = liveQueue.find(e => e.id === selectedExamId) || liveQueue[0];
+ 
+     const handleSign = () => {
+         if (workflowStep === 1) {
+             setWorkflowStep(2);
+-            // In a real app we would fire an API call here.
++            if(activeExam) {
++               fetch(`/api/studi/${activeExam.id}`, {
++                   method: 'PUT',
++                   headers: {'Content-Type': 'application/json'},
++                   body: JSON.stringify({ stato: 'COMPLETATO' })
++               }).then(() => fetchQueue());
++            }
+         }
+     };

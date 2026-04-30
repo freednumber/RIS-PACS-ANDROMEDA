@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import NeuralBackground from '@/components/NeuralBackground';
 import Link from 'next/link';
 import { DICOM_STORE } from '@/lib/dicomweb';
-import DicomViewport from '@/components/pacs/DicomViewport';
+import ImageViewer from '@/components/ImageViewer';
+import type { SeriesData } from '@/components/Viewport';
 
 // Modality colors
 const modalityColor: Record<string, string> = {
@@ -38,6 +39,12 @@ export default function DashboardMedico({ stats }: { stats: any }) {
     const [reportText, setReportText] = useState("");
     const [isDictating, setIsDictating] = useState(false);
     const [isAiGenerating, setIsAiGenerating] = useState(false);
+
+    // UI States
+    const [showWorklist, setShowWorklist] = useState(true);
+    const [showReport, setShowReport] = useState(true);
+    const [selectedStudyData, setSelectedStudyData] = useState<any>(null);
+    const [isFetchingStudy, setIsFetchingStudy] = useState(false);
 
     const fetchStudies = useCallback(async () => {
         setIsLoading(true);
@@ -107,7 +114,49 @@ export default function DashboardMedico({ stats }: { stats: any }) {
         }
     };
 
+    // Fetch full study details when an exam is selected
+    useEffect(() => {
+        if (!selectedExamId) {
+            setSelectedStudyData(null);
+            return;
+        }
+
+        setIsFetchingStudy(true);
+        fetch(`/api/studi/${selectedExamId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    setSelectedStudyData(data.data);
+                    setReportText(data.data.referto || "");
+                }
+            })
+            .catch(err => console.error('Error fetching study data:', err))
+            .finally(() => setIsFetchingStudy(false));
+    }, [selectedExamId]);
+
     const selectedExamObj = studies.find(e => e.id === selectedExamId);
+
+    const saveReport = async () => {
+        if (!selectedExamId) return;
+        setIsFetchingStudy(true); // Reuse as saving state
+        try {
+            const res = await fetch(`/api/studi/${selectedExamId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ referto: reportText }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                // Refresh studies to update status
+                fetchStudies();
+                alert('Referto salvato con successo');
+            }
+        } catch (err) {
+            console.error('Save report failed:', err);
+        } finally {
+            setIsFetchingStudy(false);
+        }
+    };
 
     return (
         <div className="relative flex h-screen w-full overflow-hidden bg-[#0A0E1A] font-sans">
@@ -126,25 +175,15 @@ export default function DashboardMedico({ stats }: { stats: any }) {
                 .hide-scroll::-webkit-scrollbar-thumb { background: rgba(0,212,190,0.3); border-radius: 4px; }
                 .hide-scroll::-webkit-scrollbar-track { background: transparent; }
                 
-                @keyframes float-panel-left {
-                    0%, 100% { transform: perspective(2000px) rotateY(3deg) rotateX(1deg) translateY(0px); }
-                    50% { transform: perspective(2000px) rotateY(3deg) rotateX(1deg) translateY(-8px); }
+                .glass-report-panel {
+                    background: rgba(13, 18, 32, 0.7);
+                    backdrop-filter: blur(12px);
+                    border-left: 1px solid rgba(0, 212, 190, 0.1);
                 }
-                @keyframes float-panel-center {
-                    0%, 100% { transform: perspective(2000px) rotateY(-1deg) rotateX(2deg) translateY(0px) translateZ(30px); }
-                    50% { transform: perspective(2000px) rotateY(-1deg) rotateX(2deg) translateY(-12px) translateZ(30px); }
-                }
-                @keyframes float-panel-right {
-                    0%, 100% { transform: perspective(2000px) rotateY(-4deg) rotateX(1deg) translateY(0px) translateZ(15px); }
-                    50% { transform: perspective(2000px) rotateY(-4deg) rotateX(1deg) translateY(-8px) translateZ(15px); }
-                }
-                .panel-left-anim { animation: float-panel-left 8s ease-in-out infinite; }
-                .panel-center-anim { animation: float-panel-center 9s ease-in-out infinite 0.5s; }
-                .panel-right-anim { animation: float-panel-right 7s ease-in-out infinite 1s; }
             `}} />
 
             {/* LEFT PANEL: Worklist */}
-            <div className="w-[300px] min-w-[300px] flex flex-col overflow-hidden relative z-10 panel-left-anim">
+            <div className={`transition-all duration-500 overflow-hidden relative z-20 flex flex-col ${showWorklist ? 'w-[300px] opacity-100' : 'w-0 opacity-0'}`} style={{ borderRight: '1px solid rgba(0, 212, 190, 0.1)' }}>
 
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-[#00D4BE]/10">
@@ -236,77 +275,58 @@ export default function DashboardMedico({ stats }: { stats: any }) {
             </div>
 
             {/* CENTER PANEL: DICOM Viewer */}
-            <div className="flex-1 relative overflow-hidden bg-black flex flex-col">
-                <div className="absolute inset-0 z-0 opacity-20">
+            <div className="flex-1 relative overflow-hidden bg-black flex flex-col z-10">
+                {/* Section Toggle Buttons */}
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 z-[100] flex flex-col gap-4">
+                    <button 
+                        onClick={() => setShowWorklist(!showWorklist)}
+                        className={`w-8 h-12 rounded-r-xl flex items-center justify-center transition-all border border-l-0 ${showWorklist ? 'bg-[#00D4BE] text-[#0A0E1A] border-[#00D4BE]/30' : 'bg-black/60 text-[#00D4BE] border-[#00D4BE]/20'}`}
+                    >
+                        {showWorklist ? '◀' : '▶'}
+                    </button>
+                </div>
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 z-[100] flex flex-col gap-4">
+                    <button 
+                        onClick={() => setShowReport(!showReport)}
+                        className={`w-8 h-12 rounded-l-xl flex items-center justify-center transition-all border border-r-0 ${showReport ? 'bg-[#00D4BE] text-[#0A0E1A] border-[#00D4BE]/30' : 'bg-black/60 text-[#00D4BE] border-[#00D4BE]/20'}`}
+                    >
+                        {showReport ? '▶' : '◀'}
+                    </button>
+                </div>
+
+                <div className="absolute inset-0 z-0 opacity-10">
                     <svg className="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
                         <defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="white" strokeWidth="0.5"/></pattern></defs>
                         <rect width="100%" height="100%" fill="url(#grid)" />
                     </svg>
                 </div>
-
-                {selectedExamObj ? (() => {
-                    const dicomStudy = DICOM_STORE.find(s => s.studyInstanceUID === (selectedExamObj as any).studyInstanceUID) || DICOM_STORE[0];
-                    return (
-                        <div key={`viewer-${selectedExamObj.id}`} className="absolute inset-0 flex flex-col z-10">
-
-                            {/* Top viewer controls */}
-                            <div className="flex items-center justify-between px-3 py-2 border-b border-white/5 bg-[#060A12]/90 backdrop-blur-xl">
-                                <div className="flex items-center gap-1">
-                                    <div className="p-1 px-2 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-500 text-[10px] font-black uppercase tracking-widest">
-                                        Live Preview
-                                    </div>
-                                    <span className="text-slate-500 text-[10px] font-mono ml-2">ID: {selectedExamObj.id}</span>
-                                </div>
-                                <div className="flex items-center gap-3 font-mono text-[10px]">
-                                     <div className="flex gap-2 text-slate-400">
-                                         <span>MOD: <b className="text-white">{selectedExamObj.modality}</b></span>
-                                         <span>SRC: <b className="text-white">{selectedExamObj.nodeName}</b></span>
-                                     </div>
-                                </div>
-                            </div>
-
-                            {/* Professional Viewport Integration */}
-                            <div className="relative flex-1">
-                                <DicomViewport 
-                                    study={dicomStudy}
-                                    seriesIndex={0}
-                                    isActive={true}
-                                    onActivate={() => {}}
-                                />
-                                
-                                <div className="absolute top-4 right-4 z-40">
-                                    <Link 
-                                        href={`/dashboard/paziente/esami/${selectedExamId}`}
-                                        className="px-4 py-2 bg-cyan-500 text-slate-900 font-black text-[10px] rounded-lg uppercase tracking-widest hover:bg-cyan-400 decoration-0 shadow-[0_0_20px_rgba(6,182,212,0.4)] flex items-center gap-2"
-                                        style={{ textDecoration: 'none' }}
-                                    >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
-                                        Apri Workstation Full
-                                    </Link>
-                                </div>
-                            </div>
-
-                            {/* Bottom series info bar (Dashboard version) */}
-                            <div className="bg-[#060A12]/90 border-t border-white/5 py-1 px-4 flex items-center justify-between shrink-0">
-                                <div className="text-[9px] font-mono text-slate-500 italic uppercase">
-                                    Scorri la rotella sull'immagine per navigare le slice di anteprima
-                                </div>
-                                <div className="flex gap-1 items-center">
-                                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Server Connected</span>
-                                </div>
-                            </div>
+                              {selectedStudyData ? (
+                    <div key={`viewer-${selectedExamId}`} className="absolute inset-0 flex flex-col z-10">
+                        <ImageViewer series={selectedStudyData.series} />
+                        
+                        {/* Status Overlays */}
+                        <div className="absolute bottom-4 left-4 z-40 flex items-center gap-2">
+                             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                             <span className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.2em] drop-shadow-lg">PACS Engine Active</span>
                         </div>
-                    );
-                })() : (
-                    <div className="flex-1 flex items-center justify-center text-slate-600 text-[10px] tracking-widest font-mono">
-                        [ NO DICOM DATA ]
+                    </div>
+                ) : isFetchingStudy ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-[#020202]">
+                        <div className="w-10 h-10 border-2 border-[#00D4BE] border-t-transparent rounded-full animate-spin" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-[#00D4BE]">Retrieving Study Data...</span>
+                    </div>
+                ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center text-slate-700 gap-4">
+                        <div className="w-24 h-24 rounded-full border border-white/5 flex items-center justify-center opacity-20">
+                            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>
+                        </div>
+                        <span className="text-[10px] tracking-[0.4em] font-black uppercase opacity-40">Select an exam to begin visualization</span>
                     </div>
                 )}
             </div>
 
             {/* RIGHT PANEL: Medical Report */}
-            <div className="w-[340px] min-w-[340px] flex flex-col bg-white border-l border-white/5 overflow-hidden">
+            <div className={`transition-all duration-500 overflow-hidden relative z-20 flex flex-col glass-report-panel ${showReport ? 'w-[360px] opacity-100' : 'w-0 opacity-0'}`}>
 
                 {selectedExamObj ? (
                     <div key={`report-${selectedExamObj.id}`} className="absolute inset-0 flex flex-col">
@@ -334,17 +354,20 @@ export default function DashboardMedico({ stats }: { stats: any }) {
                             <textarea
                                 value={reportText}
                                 onChange={(e) => setReportText(e.target.value)}
-                                placeholder="Start typing..."
-                                className="flex-1 w-full resize-none border-none bg-transparent outline-none text-slate-700 text-[13px] leading-relaxed font-serif placeholder-slate-300 p-4"
+                                placeholder="Start typing the radiological findings..."
+                                className="flex-1 w-full h-full resize-none border-none bg-transparent outline-none text-[#00D4BE] text-[15px] leading-[1.8] font-serif placeholder-slate-600 p-8 tracking-wide"
                                 readOnly={selectedTab === 'REFERTATO'}
                             ></textarea>
                         </div>
 
                         {/* Footer CTA */}
-                        <div className="p-4 border-t border-slate-100 bg-white space-y-2">
+                        <div className="p-6 border-t border-[#00D4BE]/10 bg-black/40 space-y-3">
                             {selectedTab === 'DA_REFERTARE' ? (
                                 <>
-                                    <button className="w-full py-3 bg-[#00D4BE] text-[#0A0E1A] font-bold text-xs tracking-widest uppercase rounded-xl hover:bg-[#00C4AE] active:scale-[0.98] transition-all duration-200 shadow-[0_0_20px_rgba(0,212,190,0.3)] hover:shadow-[0_0_30px_rgba(0,212,190,0.5)] flex items-center justify-center gap-2">
+                                    <button 
+                                        onClick={saveReport}
+                                        className="w-full py-4 bg-[#00D4BE] text-[#0A0E1A] font-bold text-xs tracking-widest uppercase rounded-xl hover:bg-[#00C4AE] active:scale-[0.98] transition-all duration-200 shadow-[0_0_20px_rgba(0,212,190,0.3)] hover:shadow-[0_0_30px_rgba(0,212,190,0.5)] flex items-center justify-center gap-2"
+                                    >
                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
                                         FIRMA & APPROVA REFERTO
                                     </button>
@@ -369,8 +392,9 @@ export default function DashboardMedico({ stats }: { stats: any }) {
                         </div>
                     </div>
                 ) : (
-                    <div className="flex-1 bg-white flex items-center justify-center text-slate-300 text-xs text-center px-6 leading-relaxed">
-                        Seleziona un esame dalla Worklist<br />per avviare la refertazione.
+                    <div className="flex-1 flex flex-col items-center justify-center text-slate-500 text-[10px] tracking-[0.2em] uppercase text-center px-12 leading-relaxed opacity-40">
+                        <svg className="mb-4" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                        Select an exam to begin reporting
                     </div>
                 )}
             </div>

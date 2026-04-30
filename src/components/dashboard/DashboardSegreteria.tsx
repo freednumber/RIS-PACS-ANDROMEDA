@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 // Mock Data for the Weekly Calendar
 const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -17,6 +17,40 @@ const mockAppointments = [
 
 export default function DashboardSegreteria({ stats }: { stats: any }) {
     const [isBookingPanelOpen, setIsBookingPanelOpen] = useState(false);
+    const [isRequestsPanelOpen, setIsRequestsPanelOpen] = useState(false);
+    const [prenotazioni, setPrenotazioni] = useState<any[]>([]);
+
+    useEffect(() => {
+        fetchPrenotazioni();
+    }, []);
+
+    const fetchPrenotazioni = async () => {
+        try {
+            const res = await fetch('/api/prenotazioni');
+            const data = await res.json();
+            if (data.success) {
+                setPrenotazioni(data.data);
+            }
+        } catch (e) { console.error(e); }
+    };
+
+    const handleStatusUpdate = async (id: string, stato: string, newDate?: string) => {
+        try {
+            const body: any = { stato };
+            if (newDate) body.dataDesiderata = newDate;
+            
+            const res = await fetch(`/api/prenotazioni/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            if (res.ok) {
+                fetchPrenotazioni();
+            }
+        } catch (e) { console.error(e); }
+    };
+
+    const pendingRequests = prenotazioni.filter(p => p.stato === 'IN_ATTESA' || p.stato === 'DA_CONFERMARE');
 
     // Helpers for calculating CSS absolute positions
     const getTopOffset = (hour: number, minute: number) => {
@@ -38,6 +72,14 @@ export default function DashboardSegreteria({ stats }: { stats: any }) {
                 </div>
 
                 <div className="flex items-center gap-4">
+                    <button onClick={() => setIsRequestsPanelOpen(true)} className="relative mr-4 p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                        {pendingRequests.length > 0 && (
+                            <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-white">
+                                {pendingRequests.length}
+                            </span>
+                        )}
+                    </button>
                     <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
                         <button className="px-4 py-1.5 bg-white shadow-sm rounded-lg text-sm font-bold text-teal-600">Week</button>
                         <button className="px-4 py-1.5 rounded-lg text-sm font-bold text-slate-500 hover:text-slate-700">Day</button>
@@ -220,6 +262,61 @@ export default function DashboardSegreteria({ stats }: { stats: any }) {
                     </button>
                 </div>
 
+            </div>
+
+            {/* REQUESTS PANEL */}
+            <div
+                className={`fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 transition-opacity duration-500 ${isRequestsPanelOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                onClick={() => setIsRequestsPanelOpen(false)}
+            />
+            <div className={`fixed top-0 right-0 h-full w-[450px] bg-white shadow-2xl z-50 flex flex-col transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${isRequestsPanelOpen ? 'translate-x-0' : 'translate-x-[480px]'}`}>
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                    <h2 className="text-xl font-black text-rose-600 flex items-center gap-2">
+                        Richieste Appuntamenti
+                    </h2>
+                    <button onClick={() => setIsRequestsPanelOpen(false)} className="p-2 rounded-full hover:bg-slate-200 text-slate-500 transition-colors">✕</button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                    {pendingRequests.length === 0 ? (
+                        <div className="text-center text-slate-400 mt-10">Nessuna richiesta in sospeso</div>
+                    ) : pendingRequests.map(req => (
+                        <div key={req.id} className="bg-slate-50 border border-slate-200 p-4 rounded-xl flex flex-col gap-3">
+                            <div>
+                                <div className="text-sm font-bold text-slate-800">{req.paziente?.cognome} {req.paziente?.nome}</div>
+                                <div className="text-xs text-slate-500 font-mono">{req.paziente?.codiceFiscale}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs font-bold text-slate-400 uppercase">Esame Richiesto</div>
+                                <div className="text-sm font-semibold">{req.tipoEsame} - {req.descrizioneEsame}</div>
+                                <div className="text-xs text-slate-600 mt-1">Data: {new Date(req.dataDesiderata).toLocaleString('it-IT')}</div>
+                            </div>
+                            {req.note && (
+                                <div className="p-2 bg-amber-50 text-amber-800 rounded text-xs">Note: {req.note}</div>
+                            )}
+                            
+                            <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-slate-200">
+                                <button 
+                                    onClick={() => handleStatusUpdate(req.id, 'CONFERMATO')}
+                                    className="w-full py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold uppercase"
+                                >
+                                    Approva (Crea Studio)
+                                </button>
+                                <div className="flex gap-2">
+                                    <input type="datetime-local" id={`newdate-${req.id}`} defaultValue={new Date(req.dataDesiderata).toISOString().slice(0,16)} className="flex-1 text-xs border border-slate-300 rounded px-2" />
+                                    <button 
+                                        onClick={() => {
+                                            const d = (document.getElementById(`newdate-${req.id}`) as HTMLInputElement)?.value;
+                                            if(d) handleStatusUpdate(req.id, 'PROPOSTA_ALTERNA', d);
+                                        }}
+                                        className="py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase whitespace-nowrap"
+                                    >
+                                        Proponi Alternativa
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
 
         </div>

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { formatDateTime, getStatoLabel, getStatoColor, getModalitaLabel } from '@/lib/utils';
 import ImageViewer from '@/components/ImageViewer';
+import MultiViewportWorkstation from '@/components/pacs/MultiViewportWorkstation';
 // TODO: replace with real role check (e.g., from session)
 const isAdmin = true; // placeholder
 
@@ -248,10 +249,13 @@ const uploadFiles = async (files: File[]) => {
                 </div>
             </div>
 
-            {/* Clinical Image Viewer (Multi-Grid) */}
-            <div className="glass-card p-6 min-h-[700px]">
-                <h2 className="text-lg font-bold mb-4">Visualizzatore Immagini</h2>
-                <ImageViewer series={studio.series} />
+            {/* Clinical Image Viewer — Multi-Viewport PACS Workstation */}
+            <div style={{ height: 780, borderRadius: 16, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.07)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }}>
+                <MultiViewportWorkstation
+                    series={studio.series}
+                    patientName={`${studio.patient.cognome} ${studio.patient.nome}`}
+                    studyDate={new Date(studio.dataStudio).toLocaleDateString('it-IT')}
+                />
             </div>
 
             {/* Admin Upload Section */}

@@ -17,6 +17,8 @@ export interface ViewportOverlayProps {
   zPos?: number;
   modality?: string;
   orientation?: 'axial' | 'sagittal' | 'coronal' | 'unknown';
+  prefetchProgress?: { current: number, total: number };
+  isFullyCached?: boolean;
 }
 
 export default function ViewportOverlay({
@@ -33,7 +35,9 @@ export default function ViewportOverlay({
   totalSlices,
   zPos,
   modality = 'CT',
-  orientation = 'axial'
+  orientation = 'axial',
+  prefetchProgress = { current: 0, total: 0 },
+  isFullyCached = false
 }: ViewportOverlayProps) {
   
   // Orientation Labels based on plane
@@ -96,6 +100,29 @@ export default function ViewportOverlay({
           {labels.right}
         </div>
 
+      </div>
+      
+      {/* ── Background Pre-fetch HUD ── */}
+      <div className="absolute bottom-[-16px] left-0 right-0 h-1 z-[110] bg-black/40 overflow-hidden rounded-full">
+         <div 
+           className={cn(
+             "h-full transition-all duration-300 ease-out",
+             isFullyCached ? "bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "bg-primary-500 shadow-[0_0_10px_rgba(0,212,190,0.5)]"
+           )}
+           style={{ 
+             width: prefetchProgress.total > 0 ? `${(prefetchProgress.current / prefetchProgress.total) * 100}%` : '0%' 
+           }}
+         />
+      </div>
+      
+      <div className="absolute bottom-[-28px] left-0 text-[8px] font-black tracking-[0.2em] flex items-center gap-2">
+         <span className={isFullyCached ? "text-emerald-500" : "text-primary-500 animate-pulse"}>
+           {isFullyCached ? 'READY' : 'CACHING'}
+         </span>
+         <span className="text-gray-600 font-mono">
+            [{prefetchProgress.current}/{prefetchProgress.total}] 
+            <span className="ml-1 opacity-50">RAM DATA STREAM</span>
+         </span>
       </div>
 
     </div>
